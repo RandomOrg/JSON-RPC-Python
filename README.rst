@@ -72,4 +72,4 @@ For a full list of available randomness generation functions and other features 
 Tests
 -----
 
-Note that to run the accompanying tests the API_KEY fields must be given authentic values.
+Note that to run the accompanying tests the API_KEY fields must be given authentic values. 

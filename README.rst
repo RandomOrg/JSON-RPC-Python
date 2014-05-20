@@ -1,9 +1,9 @@
 JSON-RPC-Python
 ===============
 
-Random.org JSON-RPC API (Revision 1) implementation.
+RANDOM.ORG JSON-RPC API (Revision 1) implementation.
 
-This is a Python implementation of the Random.org JSON-RPC API (R1). It provides either serialized or unserialized access to both the signed and unsigned methods of the API through the RandomOrgClient class. It also provides a convenience class through the RandomOrgClient class, the RandomOrgCache, for precaching requests.
+This is a Python implementation of the RANDOM.ORG JSON-RPC API (R1). It provides either serialized or unserialized access to both the signed and unsigned methods of the API through the RandomOrgClient class. It also provides a convenience class through the RandomOrgClient class, the RandomOrgCache, for precaching requests.
 
 Requires the `requests <http://docs.python-requests.org/en/latest/>`_ lib:
 
@@ -66,3 +66,8 @@ Documentation
 -------------
 
 For a full list of available randomness generation functions and other features see rdoclient.py documentation and https://api.random.org/json-rpc/1/
+
+Tests
+-----
+
+Note that to run the accompanying tests the API_KEY fields must be given authentic values.

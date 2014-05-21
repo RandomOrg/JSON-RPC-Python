@@ -1,5 +1,5 @@
 """
-RANDOM.ORG JSON-RPC API (Revision 1) implementation.
+RANDOM.ORG JSON-RPC API (Release 1) implementation.
 
 This is a Python implementation of the RANDOM.ORG JSON-RPC API (R1).
 It provides either serialized or unserialized access to both the signed 

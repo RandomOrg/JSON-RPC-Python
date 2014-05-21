@@ -1,5 +1,5 @@
 """
-RANDOM.ORG JSON-RPC API (Revision 1) implementation.
+RANDOM.ORG JSON-RPC API (Release 1) implementation.
 
 Usage:
 

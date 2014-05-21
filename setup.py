@@ -9,7 +9,7 @@ setup(
     version = "1.0.0",
     author = "RANDOM.ORG",
     author_email = "contact@random.org",
-    description = ("RANDOM.ORG JSON-RPC API (Revision 1) implementation."),
+    description = ("RANDOM.ORG JSON-RPC API (Release 1) implementation."),
     license = "MIT",
     keywords = "RANDOM.ORG random client implementation",
     url = "http://packages.python.org/rdoclient",

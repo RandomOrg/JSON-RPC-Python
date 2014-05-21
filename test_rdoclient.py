@@ -1,5 +1,5 @@
 """
-RANDOM.ORG JSON-RPC API (Revision 1) implementation tests.
+RANDOM.ORG JSON-RPC API (Release 1) implementation tests.
 
 Run with py.test test_rdoclient.py
 """

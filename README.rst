@@ -1,7 +1,7 @@
 JSON-RPC-Python
 ===============
 
-RANDOM.ORG JSON-RPC API (Revision 1) implementation.
+RANDOM.ORG JSON-RPC API (Release 1) implementation.
 
 This is a Python implementation of the RANDOM.ORG JSON-RPC API (R1). It provides either serialized or unserialized access to both the signed and unsigned methods of the API through the RandomOrgClient class. It also provides a convenience class through the RandomOrgClient class, the RandomOrgCache, for precaching requests. In the context of this module, a serialized client is one for which the sequence of requests matches the sequence of responses.
 
@@ -46,7 +46,7 @@ If obtaining some kind of response instantly is important, a cache should be use
 
 Note that caches don't support signed responses as it is assumed that clients using the signing features want full control over the serial numbering of responses.
 	
-Finally, it is possible to request live results as-soon-as-possible and without serialization, however this may be more prone to timeout failures as the client must obey the server's advisory delay times if requests are sent too frequently:
+Finally, it is possible to request live results as-soon-as-possible and without serialization, however this may be more prone to timeout failures as the client must obey the server's advisory delay times if the server is overloaded:
 
 .. code-block:: pycon
 

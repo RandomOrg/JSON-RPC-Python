@@ -15,7 +15,11 @@ RandomOrgCache -- for precaching API responses.
 
 RandomOrgSendTimeoutError -- when request can't be sent in a set time.
 
-RandomOrgAllowanceExceededError -- when server data allowance exceeded.
+RandomOrgKeyNotRunningError -- key stopped exception.
+
+RandomOrgInsufficientRequestsError -- requests allowance exceeded.
+
+RandomOrgInsufficientBitsError -- bits allowance exceeded.
 
 """
 
@@ -66,14 +70,35 @@ class RandomOrgSendTimeoutError(Exception):
     is exceeded before the request can be sent.
     """
 
-class RandomOrgAllowanceExceededError(Exception):
+class RandomOrgKeyNotRunningError(Exception):
     """
-    RandomOrgClient server allowance exceeded exception.
+    RandomOrgClient key stopped exception.
+    
+    Exception raised by the RandomOrgClient class when its API key
+    has been stopped. Requests will not complete while API key is 
+    in the stopped state.
+    """
+
+class RandomOrgInsufficientRequestsError(Exception):
+    """
+    RandomOrgClient server requests allowance exceeded exception.
     
     Exception raised by the RandomOrgClient class when its API key's 
-    server allowance has been exceeded. This indicates a backoff until 
-    midnight UTC is in effect, before which no requests will be sent 
-    as no meaningful server responses will be returned.
+    server requests allowance has been exceeded. This indicates that a 
+    back-off until midnight UTC is in effect, before which no requests 
+    will be sent by the client as no meaningful server responses will 
+    be returned.
+    """
+
+class RandomOrgInsufficientBitsError(Exception):
+    """
+    RandomOrgClient server bits allowance exceeded exception.
+    
+    Exception raised by the RandomOrgClient class when its API key's 
+    request has exceeded its remaining server bits allowance. If the 
+    client is currently issuing large requests it may be possible to 
+    succeed with smaller requests. Use the client's getBitsLeft() call 
+    to help determine if an alternative request size is appropriate.
     """
 
 class RandomOrgCache(object):
@@ -265,9 +290,8 @@ class RandomOrgClient(object):
     https://api.random.org/guidelines
     All requests respect the server's advisoryDelay returned in any 
     responses, or use _DEFAULT_DELAY if no advisoryDelay is returned. If
-    the supplied API key is paused, i.e., has exceeded its daily bit/
-    request allowance, this implementation will back off until midnight 
-    UTC.
+    the supplied API key is has exceeded its daily request allowance, 
+    this implementation will back off until midnight UTC.
     
     Public methods:
     
@@ -425,9 +449,14 @@ class RandomOrgClient(object):
         Raises a RandomOrgSendTimeoutError if time spent waiting before
         request is sent exceeds this instance's blocking_timeout.
         
-        Raises a RandomOrgAllowanceExceededError if this API key's 
-        server allowance has been exceeded and the instance is backing 
-        off until midnight UTC.
+        Raises a RandomOrgKeyNotRunningError if this API key is stopped. 
+        
+        Raises a RandomOrgInsufficientRequestsError if this API key's 
+        server requests allowance has been exceeded and the instance is
+        backing off until midnight UTC.
+        
+        Raises a RandomOrgInsufficientBitsError if this API key's 
+        server bits allowance has been exceeded.
         
         Raises a ValueError on RANDOM.ORG Errors, error descriptions:
         https://api.random.org/json-rpc/1/error-codes
@@ -470,9 +499,14 @@ class RandomOrgClient(object):
         Raises a RandomOrgSendTimeoutError if time spent waiting before
         request is sent exceeds this instance's blocking_timeout.
         
-        Raises a RandomOrgAllowanceExceededError if this API key's 
-        server allowance has been exceeded and the instance is backing 
-        off until midnight UTC.
+        Raises a RandomOrgKeyNotRunningError if this API key is stopped. 
+        
+        Raises a RandomOrgInsufficientRequestsError if this API key's 
+        server requests allowance has been exceeded and the instance is
+        backing off until midnight UTC.
+        
+        Raises a RandomOrgInsufficientBitsError if this API key's 
+        server bits allowance has been exceeded.
         
         Raises a ValueError on RANDOM.ORG Errors, error descriptions:
         https://api.random.org/json-rpc/1/error-codes
@@ -514,9 +548,14 @@ class RandomOrgClient(object):
         Raises a RandomOrgSendTimeoutError if time spent waiting before
         request is sent exceeds this instance's blocking_timeout.
         
-        Raises a RandomOrgAllowanceExceededError if this API key's 
-        server allowance has been exceeded and the instance is backing 
-        off until midnight UTC.
+        Raises a RandomOrgKeyNotRunningError if this API key is stopped. 
+        
+        Raises a RandomOrgInsufficientRequestsError if this API key's 
+        server requests allowance has been exceeded and the instance is
+        backing off until midnight UTC.
+        
+        Raises a RandomOrgInsufficientBitsError if this API key's 
+        server bits allowance has been exceeded.
         
         Raises a ValueError on RANDOM.ORG Errors, error descriptions:
         https://api.random.org/json-rpc/1/error-codes
@@ -556,9 +595,14 @@ class RandomOrgClient(object):
         Raises a RandomOrgSendTimeoutError if time spent waiting before
         request is sent exceeds this instance's blocking_timeout.
         
-        Raises a RandomOrgAllowanceExceededError if this API key's 
-        server allowance has been exceeded and the instance is backing 
-        off until midnight UTC.
+        Raises a RandomOrgKeyNotRunningError if this API key is stopped. 
+        
+        Raises a RandomOrgInsufficientRequestsError if this API key's 
+        server requests allowance has been exceeded and the instance is
+        backing off until midnight UTC.
+        
+        Raises a RandomOrgInsufficientBitsError if this API key's 
+        server bits allowance has been exceeded.
         
         Raises a ValueError on RANDOM.ORG Errors, error descriptions:
         https://api.random.org/json-rpc/1/error-codes
@@ -602,9 +646,14 @@ class RandomOrgClient(object):
         Raises a RandomOrgSendTimeoutError if time spent waiting before
         request is sent exceeds this instance's blocking_timeout.
         
-        Raises a RandomOrgAllowanceExceededError if this API key's 
-        server allowance has been exceeded and the instance is backing 
-        off until midnight UTC.
+        Raises a RandomOrgKeyNotRunningError if this API key is stopped. 
+        
+        Raises a RandomOrgInsufficientRequestsError if this API key's 
+        server requests allowance has been exceeded and the instance is
+        backing off until midnight UTC.
+        
+        Raises a RandomOrgInsufficientBitsError if this API key's 
+        server bits allowance has been exceeded.
         
         Raises a ValueError on RANDOM.ORG Errors, error descriptions:
         https://api.random.org/json-rpc/1/error-codes
@@ -638,9 +687,14 @@ class RandomOrgClient(object):
         Raises a RandomOrgSendTimeoutError if time spent waiting before
         request is sent exceeds this instance's blocking_timeout.
         
-        Raises a RandomOrgAllowanceExceededError if this API key's 
-        server allowance has been exceeded and the instance is backing 
-        off until midnight UTC.
+        Raises a RandomOrgKeyNotRunningError if this API key is stopped. 
+        
+        Raises a RandomOrgInsufficientRequestsError if this API key's 
+        server requests allowance has been exceeded and the instance is
+        backing off until midnight UTC.
+        
+        Raises a RandomOrgInsufficientBitsError if this API key's 
+        server bits allowance has been exceeded.
         
         Raises a ValueError on RANDOM.ORG Errors, error descriptions:
         https://api.random.org/json-rpc/1/error-codes
@@ -685,9 +739,14 @@ class RandomOrgClient(object):
         Raises a RandomOrgSendTimeoutError if time spent waiting before
         request is sent exceeds this instance's blocking_timeout.
         
-        Raises a RandomOrgAllowanceExceededError if this API key's 
-        server allowance has been exceeded and the instance is backing 
-        off until midnight UTC.
+        Raises a RandomOrgKeyNotRunningError if this API key is stopped. 
+        
+        Raises a RandomOrgInsufficientRequestsError if this API key's 
+        server requests allowance has been exceeded and the instance is
+        backing off until midnight UTC.
+        
+        Raises a RandomOrgInsufficientBitsError if this API key's 
+        server bits allowance has been exceeded.
         
         Raises a ValueError on RANDOM.ORG Errors, error descriptions:
         https://api.random.org/json-rpc/1/error-codes
@@ -732,9 +791,14 @@ class RandomOrgClient(object):
         Raises a RandomOrgSendTimeoutError if time spent waiting before
         request is sent exceeds this instance's blocking_timeout.
         
-        Raises a RandomOrgAllowanceExceededError if this API key's 
-        server allowance has been exceeded and the instance is backing 
-        off until midnight UTC.
+        Raises a RandomOrgKeyNotRunningError if this API key is stopped. 
+        
+        Raises a RandomOrgInsufficientRequestsError if this API key's 
+        server requests allowance has been exceeded and the instance is
+        backing off until midnight UTC.
+        
+        Raises a RandomOrgInsufficientBitsError if this API key's 
+        server bits allowance has been exceeded.
         
         Raises a ValueError on RANDOM.ORG Errors, error descriptions:
         https://api.random.org/json-rpc/1/error-codes
@@ -779,9 +843,14 @@ class RandomOrgClient(object):
         Raises a RandomOrgSendTimeoutError if time spent waiting before
         request is sent exceeds this instance's blocking_timeout.
         
-        Raises a RandomOrgAllowanceExceededError if this API key's 
-        server allowance has been exceeded and the instance is backing 
-        off until midnight UTC.
+        Raises a RandomOrgKeyNotRunningError if this API key is stopped. 
+        
+        Raises a RandomOrgInsufficientRequestsError if this API key's 
+        server requests allowance has been exceeded and the instance is
+        backing off until midnight UTC.
+        
+        Raises a RandomOrgInsufficientBitsError if this API key's 
+        server bits allowance has been exceeded.
         
         Raises a ValueError on RANDOM.ORG Errors, error descriptions:
         https://api.random.org/json-rpc/1/error-codes
@@ -823,9 +892,14 @@ class RandomOrgClient(object):
         Raises a RandomOrgSendTimeoutError if time spent waiting before
         request is sent exceeds this instance's blocking_timeout.
         
-        Raises a RandomOrgAllowanceExceededError if this API key's 
-        server allowance has been exceeded and the instance is backing 
-        off until midnight UTC.
+        Raises a RandomOrgKeyNotRunningError if this API key is stopped. 
+        
+        Raises a RandomOrgInsufficientRequestsError if this API key's 
+        server requests allowance has been exceeded and the instance is
+        backing off until midnight UTC.
+        
+        Raises a RandomOrgInsufficientBitsError if this API key's 
+        server bits allowance has been exceeded.
         
         Raises a ValueError on RANDOM.ORG Errors, error descriptions:
         https://api.random.org/json-rpc/1/error-codes
@@ -872,9 +946,14 @@ class RandomOrgClient(object):
         Raises a RandomOrgSendTimeoutError if time spent waiting before
         request is sent exceeds this instance's blocking_timeout.
         
-        Raises a RandomOrgAllowanceExceededError if this API key's 
-        server allowance has been exceeded and the instance is backing 
-        off until midnight UTC.
+        Raises a RandomOrgKeyNotRunningError if this API key is stopped. 
+        
+        Raises a RandomOrgInsufficientRequestsError if this API key's 
+        server requests allowance has been exceeded and the instance is
+        backing off until midnight UTC.
+        
+        Raises a RandomOrgInsufficientBitsError if this API key's 
+        server bits allowance has been exceeded.
         
         Raises a ValueError on RANDOM.ORG Errors, error descriptions:
         https://api.random.org/json-rpc/1/error-codes
@@ -910,9 +989,14 @@ class RandomOrgClient(object):
         Raises a RandomOrgSendTimeoutError if time spent waiting before
         request is sent exceeds this instance's blocking_timeout.
         
-        Raises a RandomOrgAllowanceExceededError if this API key's 
-        server allowance has been exceeded and the instance is backing 
-        off until midnight UTC.
+        Raises a RandomOrgKeyNotRunningError if this API key is stopped. 
+        
+        Raises a RandomOrgInsufficientRequestsError if this API key's 
+        server requests allowance has been exceeded and the instance is
+        backing off until midnight UTC.
+        
+        Raises a RandomOrgInsufficientBitsError if this API key's 
+        server bits allowance has been exceeded.
         
         Raises a ValueError on RANDOM.ORG Errors, error descriptions:
         https://api.random.org/json-rpc/1/error-codes
@@ -956,9 +1040,14 @@ class RandomOrgClient(object):
         Raises a RandomOrgSendTimeoutError if time spent waiting before
         request is sent exceeds this instance's blocking_timeout.
         
-        Raises a RandomOrgAllowanceExceededError if this API key's 
-        server allowance has been exceeded and the instance is backing 
-        off until midnight UTC.
+        Raises a RandomOrgKeyNotRunningError if this API key is stopped. 
+        
+        Raises a RandomOrgInsufficientRequestsError if this API key's 
+        server requests allowance has been exceeded and the instance is
+        backing off until midnight UTC.
+        
+        Raises a RandomOrgInsufficientBitsError if this API key's 
+        server bits allowance has been exceeded.
         
         Raises a ValueError on RANDOM.ORG Errors, error descriptions:
         https://api.random.org/json-rpc/1/error-codes
@@ -1181,7 +1270,7 @@ class RandomOrgClient(object):
         n -- How many random UUIDs you need. Must be within the [1,1e3]
             range.
         cache_size -- Number of result-sets for the cache to try to 
-            maintain at any given time (default 20, minimum 2).
+            maintain at any given time (default 10, minimum 2).
         """
         
         if cache_size < 2:
@@ -1218,7 +1307,7 @@ class RandomOrgClient(object):
             returned. Values allowed are _BLOB_FORMAT_BASE64 and 
             _BLOB_FORMAT_HEX (default _BLOB_FORMAT_BASE64).
         cache_size -- Number of result-sets for the cache to try to 
-            maintain at any given time (default 20, minimum 2).
+            maintain at any given time (default 10, minimum 2).
         """
         
         if cache_size < 2:
@@ -1252,9 +1341,14 @@ class RandomOrgClient(object):
         Raises a RandomOrgSendTimeoutError if time spent waiting before
         request is sent exceeds this instance's blocking_timeout.
         
-        Raises a RandomOrgAllowanceExceededError if this API key's 
-        server allowance has been exceeded and the instance is backing 
-        off until midnight UTC.
+        Raises a RandomOrgKeyNotRunningError if this API key is stopped. 
+        
+        Raises a RandomOrgInsufficientRequestsError if this API key's 
+        server requests allowance has been exceeded and the instance is
+        backing off until midnight UTC.
+        
+        Raises a RandomOrgInsufficientBitsError if this API key's 
+        server bits allowance has been exceeded.
         
         Raises a ValueError on RANDOM.ORG Errors, error descriptions:
         https://api.random.org/json-rpc/1/error-codes
@@ -1284,9 +1378,14 @@ class RandomOrgClient(object):
         Raises a RandomOrgSendTimeoutError if time spent waiting before
         request is sent exceeds this instance's blocking_timeout.
         
-        Raises a RandomOrgAllowanceExceededError if this API key's 
-        server allowance has been exceeded and the instance is backing 
-        off until midnight UTC.
+        Raises a RandomOrgKeyNotRunningError if this API key is stopped. 
+        
+        Raises a RandomOrgInsufficientRequestsError if this API key's 
+        server requests allowance has been exceeded and the instance is
+        backing off until midnight UTC.
+        
+        Raises a RandomOrgInsufficientBitsError if this API key's 
+        server bits allowance has been exceeded.
         
         Raises a ValueError on RANDOM.ORG Errors, error descriptions:
         https://api.random.org/json-rpc/1/error-codes
@@ -1378,7 +1477,7 @@ class RandomOrgClient(object):
         if self._backoff is not None:
             # Time not yet up, throw exception.
             if datetime.utcnow() < self._backoff:
-                return { 'exception': RandomOrgAllowanceExceededError(self._backoff_error) }
+                return { 'exception': RandomOrgInsufficientRequestsError(self._backoff_error) }
             
             # Time is up, clear backoff.
             else:
@@ -1415,14 +1514,26 @@ class RandomOrgClient(object):
             if code in [-32700] + range(-32603,-32600) + range(-32099,-32000):                
                 return { 'exception': RuntimeError('Error ' + str(code) + ': ' + message) }
             
-            # RandomOrgAllowanceExceededError, API key not running, 
-            # backoff until midnight UTC, from RANDOM.ORG Errors:
-            # https://api.random.org/json-rpc/1/error-codes
+            # RandomOrgKeyNotRunningError, API key not running, from 
+            # RANDOM.ORG Errors: https://api.random.org/json-rpc/1/error-codes
             elif code == 401:
+                return { 'exception': RandomOrgKeyNotRunningError('Error ' + 
+                                                                  str(code) + ': ' + message) }
+                
+            # RandomOrgInsufficientRequestsError, requests allowance 
+            # exceeded, backoff until midnight UTC, from RANDOM.ORG 
+            # Errors: https://api.random.org/json-rpc/1/error-codes
+            elif code == 402:
                 self._backoff = datetime.utcnow().replace(day=datetime.utcnow().day+1, hour=0, 
                                                           minute=0, second=0, microsecond=0)
                 self._backoff_error = 'Error ' + str(code) + ': ' + message
-                return { 'exception': RandomOrgAllowanceExceededError(self._backoff_error) }
+                return { 'exception': RandomOrgInsufficientRequestsError(self._backoff_error) }
+            
+            # RandomOrgInsufficientBitsError, bits allowance exceeded,
+            # from RANDOM.ORG Errors: https://api.random.org/json-rpc/1/error-codes
+            elif code == 403:
+                return { 'exception': RandomOrgInsufficientBitsError('Error ' + 
+                                                                     str(code) + ': ' + message) }
             
             # ValueError, error codes listed under RANDOM.ORG Errors:
             # https://api.random.org/json-rpc/1/error-codes

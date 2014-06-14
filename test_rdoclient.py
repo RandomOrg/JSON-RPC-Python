@@ -84,14 +84,14 @@ class TestRandomOrgClient(unittest.TestCase):
             response = self._client.generate_integers(10001, 0, 10)
     
     def test_allowance_exceeded_error(self):
-        """Check RandomOrgAllowanceExceededError raised if UTC backoff is in effect."""
+        """Check RandomOrgInsufficientRequestsError raised if UTC backoff is in effect."""
         
-        code = 401
-        message = 'The API key you specified is not running'
+        code = 402
+        message = 'The API key has no requsts left today'
         self._client._backoff = datetime.utcnow().replace(day=datetime.utcnow().day+1, hour=0, minute=0, second=0, microsecond=0)
         self._client._backoff_error = 'Error ' + str(code) + ': ' + message
         
-        with pytest.raises(RandomOrgAllowanceExceededError):
+        with pytest.raises(RandomOrgInsufficientRequestsError):
             response = self._client.generate_integers(10, 0, 10)
             
         self._client._backoff = None

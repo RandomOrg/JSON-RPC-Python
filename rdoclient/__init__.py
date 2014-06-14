@@ -54,9 +54,9 @@ __author__ = 'RANDOM.ORG'
 __license__ = 'MIT'
 __copyright__ = 'Copyright 2014 RANDOM.ORG'
 
-from .rdoclient import RandomOrgClient, RandomOrgCache, RandomOrgSendTimeoutError, RandomOrgAllowanceExceededError
+from .rdoclient import RandomOrgClient, RandomOrgCache, RandomOrgSendTimeoutError, RandomOrgKeyNotRunningError, RandomOrgInsufficientRequestsError, RandomOrgInsufficientBitsError
 
-__all__ = [ 'RandomOrgClient', 'RandomOrgCache', 'RandomOrgSendTimeoutError', 'RandomOrgAllowanceExceededError' ]
+__all__ = [ 'RandomOrgClient', 'RandomOrgCache', 'RandomOrgSendTimeoutError', 'RandomOrgKeyNotRunningError', 'RandomOrgInsufficientRequestsError', 'RandomOrgInsufficientBitsError' ]
 
 import logging
 

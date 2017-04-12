@@ -7,9 +7,9 @@ This is a Python implementation of the RANDOM.ORG JSON-RPC API (R1). It provides
 ## Installation
 
 
-To install, simply: 'pip install rdoclient`
+To install, simply: `pip install rdoclient`
 
-Requires the [requests] (http://docs.python-requests.org/en/latest/): pip install requests
+Requires the [requests] (http://docs.python-requests.org/en/latest/): `pip install requests`
 
 ## Usage
 
@@ -48,7 +48,7 @@ Finally, it is possible to request live results as-soon-as-possible and without 
 
 ## Documentation
 
-For a full list of available randomness generation functions and other features see rdoclient.py documentation and https://api.random.org/json-rpc/1/
+For a full list of available randomness generation functions and other features see rdoclient.py documentation and [https://api.random.org/json-rpc/1/]()
 
 ## Tests
 

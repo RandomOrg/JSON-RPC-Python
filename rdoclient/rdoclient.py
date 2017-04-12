@@ -192,7 +192,7 @@ class RandomOrgCache(object):
                         result = self._process_function(response)
                         
                         # Split bulk response into result sets.
-                        for i in xrange(0, len(result), self._request_number):
+                        for i in range(0, len(result), self._request_number):
                             self._queue.put(result[i:i+self._request_number])
                         
                     except Exception as e:
@@ -1512,7 +1512,7 @@ class RandomOrgClient(object):
             
             # RuntimeError, error codes listed under JSON-RPC Errors:
             # https://api.random.org/json-rpc/1/error-codes
-            if code in [-32700] + range(-32603,-32600) + range(-32099,-32000):                
+            if code in [-32700] + list(range(-32603,-32600)) + list(range(-32099,-32000)):                
                 return { 'exception': RuntimeError('Error ' + str(code) + ': ' + message) }
             
             # RandomOrgKeyNotRunningError, API key not running, from 
@@ -1588,11 +1588,11 @@ class RandomOrgClient(object):
     
     def _extract_ints(self, response):
         # json to integer list.
-        return map(int, self._extract_response(response))
+        return list(map(int, self._extract_response(response)))
     
     def _extract_doubles(self, response):
         # json to double list.
-        return map(float, self._extract_response(response))
+        return list(map(float, self._extract_response(response)))
     
     def _extract_strings(self, response):
         # json to string list (no change).
@@ -1600,7 +1600,7 @@ class RandomOrgClient(object):
     
     def _extract_UUIDs(self, response):
         # json to UUID list.
-        return map(uuid.UUID, self._extract_response(response))
+        return list(map(uuid.UUID, self._extract_response(response)))
     
     def _extract_blobs(self, response):
         # json to blob list (no change).

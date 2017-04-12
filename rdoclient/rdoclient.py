@@ -30,6 +30,7 @@ import time
 import uuid
 
 from datetime import datetime
+# Queue was changed to queue in Python 3
 from queue import Queue, Empty
 
 import requests
@@ -1549,6 +1550,7 @@ class RandomOrgClient(object):
         self._advisory_delay_lock.acquire()
         if 'advisoryDelay' in data['result']:
             # Convert millis to decimal seconds.
+            # Change long to int for Python 3
             self._advisory_delay = int(data['result']['advisoryDelay']) / 1000.0
         else:
             # Use default if none from server.

@@ -481,7 +481,7 @@ class RandomOrgClient(object):
             unique (default True).
         """
         
-        params = { 'apiKey':self._api_key, 'n':n, 'min':min, 'max':max, 'replacement':replacement }
+        params = { 'apiKey':self._api_key, 'n':n, 'min':min, 'max':max, 'replacement':replacement, 'base':16 }
         request = self._generate_request(_INTEGER_METHOD, params)
         response = self._send_request(request)
         return self._extract_ints(response)
@@ -771,7 +771,7 @@ class RandomOrgClient(object):
             unique (default True).
         """
         
-        params = { 'apiKey':self._api_key, 'n':n, 'min':min, 'max':max, 'replacement':replacement }
+        params = { 'apiKey':self._api_key, 'n':n, 'min':min, 'max':max, 'replacement':replacement, 'base':16 }
         request = self._generate_request(_SIGNED_INTEGER_METHOD, params)
         response = self._send_request(request)
         return self._extract_signed_response(response, self._extract_ints)

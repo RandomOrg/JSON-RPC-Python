@@ -1586,11 +1586,11 @@ class RandomOrgClient(object):
     
     def _extract_ints(self, response):
         # json to integer list.
-        return map(int, self._extract_response(response))
+        return list(map(int, self._extract_response(response)))
     
     def _extract_doubles(self, response):
         # json to double list.
-        return map(float, self._extract_response(response))
+        return list(map(float, self._extract_response(response)))
     
     def _extract_strings(self, response):
         # json to string list (no change).
@@ -1598,7 +1598,7 @@ class RandomOrgClient(object):
     
     def _extract_UUIDs(self, response):
         # json to UUID list.
-        return map(uuid.UUID, self._extract_response(response))
+        return list(map(uuid.UUID, self._extract_response(response)))
     
     def _extract_blobs(self, response):
         # json to blob list (no change).

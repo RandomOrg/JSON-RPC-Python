@@ -30,7 +30,7 @@ import time
 import uuid
 
 from datetime import datetime
-from Queue import Queue, Empty
+from queue import Queue, Empty
 
 import requests
 

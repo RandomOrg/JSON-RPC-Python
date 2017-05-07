@@ -1549,7 +1549,7 @@ class RandomOrgClient(object):
         self._advisory_delay_lock.acquire()
         if 'advisoryDelay' in data['result']:
             # Convert millis to decimal seconds.
-            self._advisory_delay = long(data['result']['advisoryDelay']) / 1000.0
+            self._advisory_delay = int(data['result']['advisoryDelay']) / 1000.0
         else:
             # Use default if none from server.
             self._advisory_delay = _DEFAULT_DELAY

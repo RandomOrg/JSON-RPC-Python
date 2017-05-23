@@ -36,32 +36,34 @@ from queue import Queue, Empty
 import requests
 
 # Basic RANDOM.ORG API functions https://api.random.org/json-rpc/1/
-_INTEGER_METHOD                  = 'generateIntegers'
-_DECIMAL_FRACTION_METHOD         = 'generateDecimalFractions'
-_GAUSSIAN_METHOD                 = 'generateGaussians'
-_STRING_METHOD                   = 'generateStrings'
-_UUID_METHOD                     = 'generateUUIDs'
-_BLOB_METHOD                     = 'generateBlobs'
-_GET_USAGE_METHOD                = 'getUsage'
+_INTEGER_METHOD = 'generateIntegers'
+_DECIMAL_FRACTION_METHOD = 'generateDecimalFractions'
+_GAUSSIAN_METHOD = 'generateGaussians'
+_STRING_METHOD = 'generateStrings'
+_UUID_METHOD = 'generateUUIDs'
+_BLOB_METHOD = 'generateBlobs'
+_GET_USAGE_METHOD = 'getUsage'
 
 # Signed RANDOM.ORG API functions https://api.random.org/json-rpc/1/signing
-_SIGNED_INTEGER_METHOD           = 'generateSignedIntegers'
-_SIGNED_DECIMAL_FRACTION_METHOD  = 'generateSignedDecimalFractions'
-_SIGNED_GAUSSIAN_METHOD          = 'generateSignedGaussians'
-_SIGNED_STRING_METHOD            = 'generateSignedStrings'
-_SIGNED_UUID_METHOD              = 'generateSignedUUIDs'
-_SIGNED_BLOB_METHOD              = 'generateSignedBlobs'
-_VERIFY_SIGNATURE_METHOD         = 'verifySignature'
+_SIGNED_INTEGER_METHOD = 'generateSignedIntegers'
+_SIGNED_DECIMAL_FRACTION_METHOD = 'generateSignedDecimalFractions'
+_SIGNED_GAUSSIAN_METHOD = 'generateSignedGaussians'
+_SIGNED_STRING_METHOD = 'generateSignedStrings'
+_SIGNED_UUID_METHOD = 'generateSignedUUIDs'
+_SIGNED_BLOB_METHOD = 'generateSignedBlobs'
+_VERIFY_SIGNATURE_METHOD = 'verifySignature'
 
 # Blob format literals
-_BLOB_FORMAT_BASE64              = 'base64'
-_BLOB_FORMAT_HEX                 = 'hex'
+_BLOB_FORMAT_BASE64 = 'base64'
+_BLOB_FORMAT_HEX = 'hex'
 
 # Default backoff to use if no advisoryDelay backoff supplied by server
-_DEFAULT_DELAY                   = 1.0
+_DEFAULT_DELAY = 1.0
 
-# On request fetch fresh allowance state if current state data is older than this value
+# On request fetch fresh allowance state if current state
+# data is older than this value
 _ALLOWANCE_STATE_REFRESH_SECONDS = 3600.0
+
 
 class RandomOrgSendTimeoutError(Exception):
     """
@@ -71,6 +73,7 @@ class RandomOrgSendTimeoutError(Exception):
     is exceeded before the request can be sent.
     """
 
+
 class RandomOrgKeyNotRunningError(Exception):
     """
     RandomOrgClient key stopped exception.
@@ -79,6 +82,7 @@ class RandomOrgKeyNotRunningError(Exception):
     has been stopped. Requests will not complete while API key is 
     in the stopped state.
     """
+
 
 class RandomOrgInsufficientRequestsError(Exception):
     """
@@ -91,6 +95,7 @@ class RandomOrgInsufficientRequestsError(Exception):
     be returned.
     """
 
+
 class RandomOrgInsufficientBitsError(Exception):
     """
     RandomOrgClient server bits allowance exceeded exception.
@@ -101,6 +106,7 @@ class RandomOrgInsufficientBitsError(Exception):
     succeed with smaller requests. Use the client's getBitsLeft() call 
     to help determine if an alternative request size is appropriate.
     """
+
 
 class RandomOrgCache(object):
     """
@@ -184,7 +190,8 @@ class RandomOrgCache(object):
             if self._bulk_request_number > 0:
                 
                 # Is there space for a bulk response in the queue?
-                if self._queue.qsize() < (self._queue.maxsize - self._bulk_request_number):
+                if self._queue.qsize() < (self._queue.maxsize -
+                                          self._bulk_request_number):
                     
                     # Issue and process request and response.
                     try:
@@ -194,11 +201,12 @@ class RandomOrgCache(object):
                         # Split bulk response into result sets.
                         for i in range(0, len(result), self._request_number):
                             self._queue.put(result[i:i+self._request_number])
-                        
+
+                    # TODO: propose appropriate exception
                     except Exception as e:
                         # Don't handle failures from _request_function()
                         # Just try again later.
-                        logging.info("RandomOrgCache populate Exception: " + str(e))
+                        logging.info(f"RandomOrgCache populate Exception: {e}")
                     
                 # No space, sleep and wait for consumed notification.
                 else:
@@ -227,7 +235,7 @@ class RandomOrgCache(object):
         """
         Stop cache.
         
-        Cache will not contine to populate itself.
+        Cache will not continue to populate itself.
         """
         
         self._paused = True
@@ -368,7 +376,8 @@ class RandomOrgClient(object):
         return instance
     
     def __init__(self, api_key, 
-                 blocking_timeout=24.0*60.0*60.0, http_timeout=120.0, serialized=True):
+                 blocking_timeout=24.0*60.0*60.0, http_timeout=120.0,
+                 serialized=True):
         """
         Constructor.
         
@@ -406,7 +415,9 @@ class RandomOrgClient(object):
                 # set up the serialized request Queue and Thread
                 self._serialized_queue = Queue()
             
-                self._serialized_thread = threading.Thread(target=self._threaded_request_sending)
+                self._serialized_thread = threading.Thread(
+                    target=self._threaded_request_sending
+                )
                 self._serialized_thread.daemon = True
                 self._serialized_thread.start()
             else:
@@ -433,9 +444,11 @@ class RandomOrgClient(object):
             self._backoff_error = None
             
         else:
-            logging.info("Using RandomOrgClient instance already created for key \"" + api_key + "\"")
-    
-    
+            logging.info(
+                "Using RandomOrgClient instance already created for key "
+                "\"{api_key}\""
+            )
+
     # Basic methods for generating randomness, see:
     # https://api.random.org/json-rpc/1/basic
     
@@ -482,7 +495,11 @@ class RandomOrgClient(object):
             unique (default True).
         """
         
-        params = { 'apiKey':self._api_key, 'n':n, 'min':min, 'max':max, 'replacement':replacement }
+        params = {
+            'apiKey': self._api_key,
+            'n': n, 'min': min, 'max': max,
+            'replacement': replacement
+                   }
         request = self._generate_request(_INTEGER_METHOD, params)
         response = self._send_request(request)
         return self._extract_ints(response)
@@ -536,7 +553,8 @@ class RandomOrgClient(object):
         response = self._send_request(request)
         return self._extract_doubles(response)
     
-    def generate_gaussians(self, n, mean, standard_deviation, significant_digits):
+    def generate_gaussians(self, n, mean, standard_deviation,
+                           significant_digits):
         """
         Generate random numbers.
         
@@ -579,8 +597,12 @@ class RandomOrgClient(object):
             Must be within the [2,20] range.
         """
         
-        params = { 'apiKey':self._api_key, 'n':n, 'mean':mean,
-                   'standardDeviation':standard_deviation, 'significantDigits':significant_digits }
+        params = {
+            'apiKey': self._api_key,
+            'n': n, 'mean': mean,
+            'standardDeviation': standard_deviation,
+            'significantDigits': significant_digits
+        }
         request = self._generate_request(_GAUSSIAN_METHOD, params)
         response = self._send_request(request)
         return self._extract_doubles(response)
@@ -629,8 +651,12 @@ class RandomOrgClient(object):
             all be unique (default True).
         """
         
-        params = { 'apiKey':self._api_key, 'n':n, 'length':length, 
-                   'characters':characters, 'replacement':replacement }
+        params = {
+            'apiKey': self._api_key, 'n': n,
+            'length': length,
+            'characters': characters,
+            'replacement': replacement
+        }
         request = self._generate_request(_STRING_METHOD, params)
         response = self._send_request(request)
         return self._extract_strings(response)
@@ -671,7 +697,10 @@ class RandomOrgClient(object):
             range.
         """
         
-        params = { 'apiKey':self._api_key, 'n':n }
+        params = {
+            'apiKey': self._api_key,
+            'n': n
+        }
         request = self._generate_request(_UUID_METHOD, params)
         response = self._send_request(request)
         return self._extract_UUIDs(response)
@@ -717,12 +746,15 @@ class RandomOrgClient(object):
             _BLOB_FORMAT_HEX (default _BLOB_FORMAT_BASE64).
         """
         
-        params = { 'apiKey':self._api_key, 'n':n, 'size':size, 'format':format }
+        params = {
+            'apiKey': self._api_key,
+            'n': n, 'size': size,
+            'format': format
+        }
         request = self._generate_request(_BLOB_METHOD, params)
         response = self._send_request(request)
         return self._extract_blobs(response)
-    
-    
+
     # Signed methods for generating randomness, see:
     # https://api.random.org/json-rpc/1/signing
     
@@ -772,12 +804,17 @@ class RandomOrgClient(object):
             unique (default True).
         """
         
-        params = { 'apiKey':self._api_key, 'n':n, 'min':min, 'max':max, 'replacement':replacement }
+        params = {
+            'apiKey': self._api_key,
+            'n': n, 'min': min, 'max': max,
+            'replacement': replacement
+        }
         request = self._generate_request(_SIGNED_INTEGER_METHOD, params)
         response = self._send_request(request)
         return self._extract_signed_response(response, self._extract_ints)
     
-    def generate_signed_decimal_fractions(self, n, decimal_places, replacement=True):
+    def generate_signed_decimal_fractions(self, n, decimal_places,
+                                          replacement=True):
         """
         Generate digitally signed random decimal fractions.
         
@@ -822,13 +859,18 @@ class RandomOrgClient(object):
             unique (default True).
         """
         
-        params = { 'apiKey':self._api_key, 'n':n, 
-                   'decimalPlaces':decimal_places, 'replacement':replacement }
-        request = self._generate_request(_SIGNED_DECIMAL_FRACTION_METHOD, params)
+        params = {
+            'apiKey': self._api_key, 'n': n,
+            'decimalPlaces': decimal_places,
+            'replacement': replacement
+        }
+        request = self._generate_request(_SIGNED_DECIMAL_FRACTION_METHOD,
+                                         params)
         response = self._send_request(request)
         return self._extract_signed_response(response, self._extract_doubles)
     
-    def generate_signed_gaussians(self, n, mean, standard_deviation, significant_digits):
+    def generate_signed_gaussians(self, n, mean, standard_deviation,
+                                  significant_digits):
         """
         Generate digitally signed random numbers.
         
@@ -874,8 +916,11 @@ class RandomOrgClient(object):
             Must be within the [2,20] range.
         """
         
-        params = { 'apiKey':self._api_key, 'n':n, 'mean':mean,
-                   'standardDeviation':standard_deviation, 'significantDigits':significant_digits }
+        params = {
+            'apiKey': self._api_key, 'n': n, 'mean': mean,
+            'standardDeviation': standard_deviation,
+            'significantDigits': significant_digits
+        }
         request = self._generate_request(_SIGNED_GAUSSIAN_METHOD, params)
         response = self._send_request(request)
         return self._extract_signed_response(response, self._extract_doubles)
@@ -926,8 +971,12 @@ class RandomOrgClient(object):
             all be unique (default True).
         """
         
-        params = { 'apiKey':self._api_key, 'n':n, 'length':length, 
-                   'characters':characters, 'replacement':replacement }
+        params = {
+            'apiKey': self._api_key, 'n': n,
+            'length': length,
+            'characters': characters,
+            'replacement': replacement
+        }
         request = self._generate_request(_SIGNED_STRING_METHOD, params)
         response = self._send_request(request)
         return self._extract_signed_response(response, self._extract_strings)
@@ -971,7 +1020,7 @@ class RandomOrgClient(object):
             range.
         """
         
-        params = { 'apiKey':self._api_key, 'n':n }
+        params = {'apiKey': self._api_key, 'n': n}
         request = self._generate_request(_SIGNED_UUID_METHOD, params)
         response = self._send_request(request)
         return self._extract_signed_response(response, self._extract_UUIDs)
@@ -1019,12 +1068,14 @@ class RandomOrgClient(object):
             _BLOB_FORMAT_HEX (default _BLOB_FORMAT_BASE64).
         """
         
-        params = { 'apiKey':self._api_key, 'n':n, 'size':size, 'format':format }
+        params = {
+            'apiKey': self._api_key, 'n': n,
+            'size': size, 'format': format
+        }
         request = self._generate_request(_SIGNED_BLOB_METHOD, params)
         response = self._send_request(request)
         return self._extract_signed_response(response, self._extract_blobs)
-    
-    
+
     # Signature verification for signed methods, see:
     # https://api.random.org/json-rpc/1/signing
     
@@ -1067,15 +1118,15 @@ class RandomOrgClient(object):
         the random field originates from.
         """
         
-        params = { 'random':random, 'signature':signature }
+        params = {'random': random, 'signature': signature}
         request = self._generate_request(_VERIFY_SIGNATURE_METHOD, params)
         response = self._send_request(request)
         return self._extract_verification_response(response)
-    
-    
+
     # Methods used to create a cache for any given randomness request.
     
-    def create_integer_cache(self, n, min, max, replacement=True, cache_size=20):
+    def create_integer_cache(self, n, min, max, replacement=True,
+                             cache_size=20):
         """
         Get a RandomOrgCache to obtain random integers.
         
@@ -1108,14 +1159,19 @@ class RandomOrgClient(object):
         # cache_size/2 if 5 >= cache_size.
         if replacement:
             bulk_n = cache_size/2 if 5 >= cache_size else 5
-            params = { 'apiKey':self._api_key, 'n':bulk_n*n, 
-                       'min':min, 'max':max, 'replacement':replacement }
+            params = {
+                'apiKey': self._api_key, 'n' : bulk_n*n,
+                'min': min, 'max': max, 'replacement': replacement
+            }
         
         # not possible to make the request more efficient
         else:
             bulk_n = 0
-            params = { 'apiKey':self._api_key, 'n':n, 
-                       'min':min, 'max':max, 'replacement':replacement }
+            params = {
+                'apiKey': self._api_key, 'n': n,
+                'min': min, 'max': max,
+                'replacement': replacement
+            }
         
         # get the request object for use in all requests from this cache
         request = self._generate_request(_INTEGER_METHOD, params)
@@ -1123,7 +1179,8 @@ class RandomOrgClient(object):
         return RandomOrgCache(self._send_request, self._extract_ints, 
                               request, cache_size, bulk_n, n)
     
-    def create_decimal_fraction_cache(self, n, decimal_places, replacement=True, cache_size=20):
+    def create_decimal_fraction_cache(self, n, decimal_places,
+                                      replacement=True, cache_size=20):
         """
         Get a RandomOrgCache to obtain random decimal fractions.
         
@@ -1154,14 +1211,20 @@ class RandomOrgClient(object):
         # cache_size/2 if 5 >= cache_size.
         if replacement:
             bulk_n = cache_size/2 if 5 >= cache_size else 5
-            params = { 'apiKey':self._api_key, 'n':bulk_n*n, 
-                       'decimalPlaces':decimal_places, 'replacement':replacement }
+            params = {
+                'apiKey': self._api_key, 'n': bulk_n*n,
+                'decimalPlaces': decimal_places,
+                'replacement': replacement
+            }
         
         # not possible to make the request more efficient
         else:
             bulk_n = 0
-            params = { 'apiKey':self._api_key, 'n':n, 
-                       'decimalPlaces':decimal_places, 'replacement':replacement }
+            params = {
+                'apiKey': self._api_key, 'n': n,
+                'decimalPlaces': decimal_places,
+                'replacement': replacement
+            }
         
         # get the request object for use in all requests from this cache
         request = self._generate_request(_DECIMAL_FRACTION_METHOD, params)
@@ -1169,7 +1232,8 @@ class RandomOrgClient(object):
         return RandomOrgCache(self._send_request, self._extract_doubles, 
                               request, cache_size, bulk_n, n)
     
-    def create_gaussian_cache(self, n, mean, standard_deviation, significant_digits, cache_size=20):
+    def create_gaussian_cache(self, n, mean, standard_deviation,
+                              significant_digits, cache_size=20):
         """
         Get a RandomOrgCache to obtain random numbers.
         
@@ -1199,8 +1263,11 @@ class RandomOrgClient(object):
         # server. Either 5 sets of items at a time, or cache_size/2 
         # if 5 >= cache_size.
         bulk_n = cache_size/2 if 5 >= cache_size else 5
-        params = { 'apiKey':self._api_key, 'n':bulk_n*n, 'mean':mean,
-                   'standardDeviation':standard_deviation, 'significantDigits':significant_digits }
+        params = {
+            'apiKey': self._api_key, 'n':bulk_n*n, 'mean': mean,
+            'standardDeviation': standard_deviation,
+            'significantDigits': significant_digits
+        }
         
         # get the request object for use in all requests from this cache
         request = self._generate_request(_GAUSSIAN_METHOD, params)
@@ -1208,7 +1275,8 @@ class RandomOrgClient(object):
         return RandomOrgCache(self._send_request, self._extract_doubles,
                               request, cache_size, bulk_n, n)
     
-    def create_string_cache(self, n, length, characters, replacement=True, cache_size=20):
+    def create_string_cache(self, n, length, characters,
+                            replacement=True, cache_size=20):
         """
         Get a RandomOrgCache to obtain random strings.
         
@@ -1242,14 +1310,22 @@ class RandomOrgClient(object):
         # cache_size/2 if 5 >= cache_size.
         if replacement:
             bulk_n = cache_size/2 if 5 >= cache_size else 5
-            params = { 'apiKey':self._api_key, 'n':bulk_n*n, 'length':length, 
-                       'characters':characters, 'replacement':replacement }
+            params = {
+                'apiKey': self._api_key,
+                'n': bulk_n*n, 'length': length,
+                'characters': characters,
+                'replacement': replacement
+            }
         
         # not possible to make the request more efficient
         else:
             bulk_n = 0
-            params = { 'apiKey':self._api_key, 'n':n, 'length':length, 
-                       'characters':characters, 'replacement':replacement }
+            params = {
+                'apiKey': self._api_key,
+                'n': n, 'length': length,
+                'characters': characters,
+                'replacement': replacement
+            }
         
         # get the request object for use in all requests from this cache
         request = self._generate_request(_STRING_METHOD, params)
@@ -1281,7 +1357,7 @@ class RandomOrgClient(object):
         # from the server. Either 5 sets of items at a time, or 
         # cache_size/2 if 5 >= cache_size.
         bulk_n = cache_size/2 if 5 >= cache_size else 5
-        params = { 'apiKey':self._api_key, 'n':bulk_n*n }
+        params = {'apiKey': self._api_key, 'n': bulk_n*n}
                 
         # get the request object for use in all requests from this cache
         request = self._generate_request(_UUID_METHOD, params)
@@ -1289,7 +1365,8 @@ class RandomOrgClient(object):
         return RandomOrgCache(self._send_request, self._extract_UUIDs, 
                               request, cache_size, bulk_n, n)
     
-    def create_blob_cache(self, n, size, format=_BLOB_FORMAT_BASE64, cache_size=10):
+    def create_blob_cache(self, n, size, format=_BLOB_FORMAT_BASE64,
+                          cache_size=10):
         """
         Get a RandomOrgCache to obtain random blobs.
         
@@ -1318,15 +1395,17 @@ class RandomOrgClient(object):
         # from the server. Either 5 sets of items at a time, or 
         # cache_size/2 if 5 >= cache_size.
         bulk_n = cache_size/2 if 5 >= cache_size else 5
-        params = { 'apiKey':self._api_key, 'n':bulk_n*n, 'size':size, 'format':format }
+        params = {
+            'apiKey': self._api_key, 'n': bulk_n*n,
+            'size': size, 'format': format
+        }
         
         # get the request object for use in all requests from this cache
         request = self._generate_request(_BLOB_METHOD, params)
         
         return RandomOrgCache(self._send_request, self._extract_blobs, 
                               request, cache_size, bulk_n, n)
-    
-    
+
     # Methods for accessing server usage statistics
     
     def get_requests_left(self):
@@ -1361,7 +1440,8 @@ class RandomOrgClient(object):
         http://docs.python-requests.org/en/v2.0-0/user/quickstart/#errors-and-exceptions
         """
         if self._requests_left is None or \
-           time.clock() > self._last_response_received_time + _ALLOWANCE_STATE_REFRESH_SECONDS:
+            time.clock() > self._last_response_received_time + \
+                _ALLOWANCE_STATE_REFRESH_SECONDS:
             self._get_usage()
         
         return self._requests_left
@@ -1398,12 +1478,12 @@ class RandomOrgClient(object):
         http://docs.python-requests.org/en/v2.0-0/user/quickstart/#errors-and-exceptions
         """
         if self._bits_left is None or \
-           time.clock() > self._last_response_received_time + _ALLOWANCE_STATE_REFRESH_SECONDS:
+            time.clock() > self._last_response_received_time + \
+                _ALLOWANCE_STATE_REFRESH_SECONDS:
             self._get_usage()
         
         return self._bits_left
-    
-    
+
     # Private methods for class operation.
     
     def _send_unserialized_request(self, request):
@@ -1422,11 +1502,15 @@ class RandomOrgClient(object):
         lock = threading.Condition()
         lock.acquire()
         
-        data = {'lock': lock, 'request': request, 'response': None, 'exception': None}
+        data = {
+            'lock': lock, 'request': request,
+            'response': None, 'exception': None
+        }
         self._serialized_queue.put(data)
         
         # Wait on the Condition for the specified blocking timeout.
-        lock.wait(timeout=None if self._blocking_timeout == -1 else self._blocking_timeout)
+        lock.wait(timeout=None if self._blocking_timeout == -1 else
+                  self._blocking_timeout)
         
         # Lock has now either been notified or timed out.
         # Examine data to determine which and react accordingly.
@@ -1435,9 +1519,12 @@ class RandomOrgClient(object):
         if data['response'] is None and data['exception'] is None:
             data['request'] = None
             lock.release()
-            raise RandomOrgSendTimeoutError('The defined maximum allowed blocking time of ' + 
-                                            str(self._blocking_timeout) + 's has been exceeded \
-                                            while waiting for a synchronous request to send.')
+            raise RandomOrgSendTimeoutError(
+                'The defined maximum allowed blocking time of '
+                '{0}s has been exceeded while waiting for a synchronous '
+                'request to send.'.format(
+                    str(self._blocking_timeout))
+                )
         
         # Exception on sending request.
         if data['exception'] is not None:
@@ -1478,7 +1565,10 @@ class RandomOrgClient(object):
         if self._backoff is not None:
             # Time not yet up, throw exception.
             if datetime.utcnow() < self._backoff:
-                return { 'exception': RandomOrgInsufficientRequestsError(self._backoff_error) }
+                return {
+                    'exception':
+                        RandomOrgInsufficientRequestsError(self._backoff_error)
+                }
             
             # Time is up, clear backoff.
             else:
@@ -1487,16 +1577,24 @@ class RandomOrgClient(object):
         
         # Check server advisory delay.
         self._advisory_delay_lock.acquire()
-        wait = self._advisory_delay - (time.clock() - self._last_response_received_time)
+        wait = self._advisory_delay - (
+            time.clock() - self._last_response_received_time
+        )
         self._advisory_delay_lock.release()
         
         # Wait the specified delay if necessary and if wait time is not
         # longer than the set blocking_timeout.
         if wait > 0:
-            if (self._blocking_timeout != -1 and wait > self._blocking_timeout):
-                return { 'exception': RandomOrgSendTimeoutError('The server advisory delay of ' + 
-                                      str(wait) + 's is greater than the defined maximum allowed \
-                                      blocking time of ' + str(self._blocking_timeout) + 's.') }
+            if self._blocking_timeout != -1 and wait > self._blocking_timeout:
+                return {
+                    'exception':
+                        RandomOrgSendTimeoutError(
+                            'The server advisory delay of {0}s is greater '
+                            'than the defined maximum allowed '
+                            'blocking time of {1}s.'.format(
+                                str(wait), str(self._blocking_timeout))
+                        )
+                }
             time.sleep(wait)
         
         # Send the request & parse the response.
@@ -1512,34 +1610,60 @@ class RandomOrgClient(object):
             
             # RuntimeError, error codes listed under JSON-RPC Errors:
             # https://api.random.org/json-rpc/1/error-codes
-            if code in [-32700] + list(range(-32603,-32600)) + list(range(-32099,-32000)):                
-                return { 'exception': RuntimeError('Error ' + str(code) + ': ' + message) }
+            if code in [-32700] + list(
+                    range(-32603, -32600)) + list(range(-32099, -32000)):
+                return {
+                    'exception':
+                        RuntimeError(
+                            'Error {0}: {1}'.format(
+                                str(code), message)
+                            )
+                        }
             
             # RandomOrgKeyNotRunningError, API key not running, from 
             # RANDOM.ORG Errors: https://api.random.org/json-rpc/1/error-codes
             elif code == 401:
-                return { 'exception': RandomOrgKeyNotRunningError('Error ' + 
-                                                                  str(code) + ': ' + message) }
+                return {
+                    'exception': RandomOrgKeyNotRunningError(
+                        'Error {0}: {1}'.format(
+                            str(code), message)
+                        )
+                    }
                 
             # RandomOrgInsufficientRequestsError, requests allowance 
             # exceeded, backoff until midnight UTC, from RANDOM.ORG 
             # Errors: https://api.random.org/json-rpc/1/error-codes
             elif code == 402:
-                self._backoff = datetime.utcnow().replace(day=datetime.utcnow().day+1, hour=0, 
-                                                          minute=0, second=0, microsecond=0)
-                self._backoff_error = 'Error ' + str(code) + ': ' + message
-                return { 'exception': RandomOrgInsufficientRequestsError(self._backoff_error) }
+                self._backoff = datetime.utcnow().replace(
+                    day=datetime.utcnow().day+1, hour=0,
+                    minute=0, second=0, microsecond=0
+                )
+                self._backoff_error = 'Error {0}: {1}'.format(str(code),
+                                                              message)
+                return {
+                    'exception':
+                        RandomOrgInsufficientRequestsError(self._backoff_error)
+                }
             
             # RandomOrgInsufficientBitsError, bits allowance exceeded,
-            # from RANDOM.ORG Errors: https://api.random.org/json-rpc/1/error-codes
+            # from RANDOM.ORG Errors:
+            # https://api.random.org/json-rpc/1/error-codes
             elif code == 403:
-                return { 'exception': RandomOrgInsufficientBitsError('Error ' + 
-                                                                     str(code) + ': ' + message) }
+                return {
+                    'exception': RandomOrgInsufficientBitsError(
+                        'Error {0}: {1}'.format(
+                            str(code), message)
+                        )
+                    }
             
             # ValueError, error codes listed under RANDOM.ORG Errors:
             # https://api.random.org/json-rpc/1/error-codes
             else:
-                return { 'exception': ValueError('Error ' + str(code) + ': ' + message) }
+                return {
+                    'exception': ValueError('Error {0}: {1}'.format(
+                        str(code), message)
+                    )
+                }
         
         # Update usage stats
         if 'requestsLeft' in data['result']:
@@ -1570,7 +1694,10 @@ class RandomOrgClient(object):
     
     def _generate_request(self, method, params):
         # Base json request.
-        return { 'jsonrpc':'2.0', 'method':method, 'params':params, 'id':uuid.uuid4().hex }
+        return {
+            'jsonrpc': '2.0', 'method': method,
+            'params': params, 'id': uuid.uuid4().hex
+        }
     
     def _extract_response(self, response):
         # Gets random data.
@@ -1605,4 +1732,4 @@ class RandomOrgClient(object):
     def _extract_blobs(self, response):
         # json to blob list (no change).
         return self._extract_response(response)
-    
+

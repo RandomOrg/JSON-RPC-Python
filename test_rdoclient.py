@@ -57,13 +57,11 @@ class TestRandomOrgClient(unittest.TestCase):
         """Kill all clients."""
         self._client = None
         RandomOrgClient.__key_indexed_instances = {}
-    
-    
+
     def test_info(self):
         assert isinstance(self._client.get_requests_left(), int)
         assert isinstance(self._client.get_bits_left(), int)
-    
-    
+
     def test_api_key_duplication(self):
         """Check new instance isn't created for same api key, 
         and different api key creates different instance."""

@@ -30,7 +30,10 @@ import time
 import uuid
 
 from datetime import datetime
-from Queue import Queue, Empty
+try:
+    from queue import Queue, Empty
+except ImportError:
+    from Queue import Queue, Empty
 
 import requests
 

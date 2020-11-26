@@ -1,9 +1,9 @@
 JSON-RPC-Python
 ===============
 
-RANDOM.ORG JSON-RPC API (Release 1) implementation.
+RANDOM.ORG JSON-RPC API (Release 2) implementation.
 
-This is a Python implementation of the RANDOM.ORG JSON-RPC API (R1). It provides either serialized or unserialized access to both the signed and unsigned methods of the API through the RandomOrgClient class. It also provides a convenience class through the RandomOrgClient class, the RandomOrgCache, for precaching requests. In the context of this module, a serialized client is one for which the sequence of requests matches the sequence of responses.
+This is a Python implementation of the RANDOM.ORG JSON-RPC API (R2). It provides either serialized or unserialized access to both the signed and unsigned methods of the API through the RandomOrgClient class. It also provides a convenience class through the RandomOrgClient class, the RandomOrgCache, for precaching requests. In the context of this module, a serialized client is one for which the sequence of requests matches the sequence of responses.
 
 Installation
 ------------
@@ -19,6 +19,15 @@ Requires the `requests <http://docs.python-requests.org/en/latest/>`_ lib:
 .. code-block:: bash
 
     $ pip install requests
+
+Requires the `six <https://six.readthedocs.io/>`_ lib:
+
+.. code-block:: bash
+
+    $ pip install six
+
+
+Note that the required dependencies 'requests' and 'six' are installed automatically, when using pip install for 'rdoclient' version >= 1.2 (Update: November 2020).  
 
 Usage
 -----
@@ -67,9 +76,9 @@ Finally, it is possible to request live results as-soon-as-possible and without 
 Documentation
 -------------
 
-For a full list of available randomness generation functions and other features see rdoclient.py documentation and https://api.random.org/json-rpc/1/
+For a full list of available randomness generation functions and other features see rdoclient.py documentation and https://api.random.org/json-rpc/2
 
 Tests
 -----
 
-Note that to run the accompanying tests the API_KEY fields must be given authentic values. 
+Note that to run the accompanying tests the _API_KEY_1 field in test_rdoclient.py must be given an authentic value, i.e. a valid API key. The _API_KEY_2 field does not need to be changed. 

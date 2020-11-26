@@ -1,7 +1,7 @@
 """
-RANDOM.ORG JSON-RPC API (Release 1) implementation.
+RANDOM.ORG JSON-RPC API (Release 2) implementation.
 
-This is a Python implementation of the RANDOM.ORG JSON-RPC API (R1).
+This is a Python implementation of the RANDOM.ORG JSON-RPC API (R2).
 It provides either serialized or unserialized access to both the signed 
 and unsigned methods of the API through the RandomOrgClient class. It 
 also provides a convenience class through the RandomOrgClient class, 
@@ -15,27 +15,41 @@ RandomOrgCache -- for precaching API responses.
 
 RandomOrgSendTimeoutError -- when request can't be sent in a set time.
 
+RandomOrgKeyNonExistentError -- key does not exist. 
+
 RandomOrgKeyNotRunningError -- key stopped exception.
 
 RandomOrgInsufficientRequestsError -- requests allowance exceeded.
 
 RandomOrgInsufficientBitsError -- bits allowance exceeded.
 
+RandomOrgKeyInvalidAccessError -- key is not valid for the requested method 
+
+RandomOrgKeyInvalidVersionError -- key is not valid for the version of the API
+
 """
 
+from collections import OrderedDict
 import json
 import logging
 import threading
 import time
+import sys
 import uuid
 
 from datetime import datetime
-from Queue import Queue, Empty
+try:
+    # Python 2.7
+    from Queue import Queue, Empty
+except ImportError:
+    # Python 3+
+    from queue import Queue, Empty
 
 import requests
 
-# Basic RANDOM.ORG API functions https://api.random.org/json-rpc/1/
+# Basic RANDOM.ORG API functions https://api.random.org/json-rpc/2/basic
 _INTEGER_METHOD                  = 'generateIntegers'
+_INTEGER_SEQUENCES_METHOD        = 'generateIntegerSequences'
 _DECIMAL_FRACTION_METHOD         = 'generateDecimalFractions'
 _GAUSSIAN_METHOD                 = 'generateGaussians'
 _STRING_METHOD                   = 'generateStrings'
@@ -43,13 +57,15 @@ _UUID_METHOD                     = 'generateUUIDs'
 _BLOB_METHOD                     = 'generateBlobs'
 _GET_USAGE_METHOD                = 'getUsage'
 
-# Signed RANDOM.ORG API functions https://api.random.org/json-rpc/1/signing
+# Signed RANDOM.ORG API functions https://api.random.org/json-rpc/2/signed
 _SIGNED_INTEGER_METHOD           = 'generateSignedIntegers'
+_SIGNED_INTEGER_SEQUENCES_METHOD = 'generateSignedIntegerSequences'
 _SIGNED_DECIMAL_FRACTION_METHOD  = 'generateSignedDecimalFractions'
 _SIGNED_GAUSSIAN_METHOD          = 'generateSignedGaussians'
 _SIGNED_STRING_METHOD            = 'generateSignedStrings'
 _SIGNED_UUID_METHOD              = 'generateSignedUUIDs'
 _SIGNED_BLOB_METHOD              = 'generateSignedBlobs'
+_GET_RESULT_METHOD               = 'getResult'
 _VERIFY_SIGNATURE_METHOD         = 'verifySignature'
 
 # Blob format literals
@@ -59,7 +75,8 @@ _BLOB_FORMAT_HEX                 = 'hex'
 # Default backoff to use if no advisoryDelay backoff supplied by server
 _DEFAULT_DELAY                   = 1.0
 
-# On request fetch fresh allowance state if current state data is older than this value
+# On request fetch fresh allowance state if current state data is older 
+# than this value
 _ALLOWANCE_STATE_REFRESH_SECONDS = 3600.0
 
 class RandomOrgSendTimeoutError(Exception):
@@ -68,6 +85,14 @@ class RandomOrgSendTimeoutError(Exception):
     
     Exception raised by the RandomOrgClient class when blocking_timeout 
     is exceeded before the request can be sent.
+    """
+
+class RandomOrgKeyNonExistentError(Exception):
+    """
+    RandomOrgClient key does not exist.
+    
+    Exception raised by the RandomOrgClient class when the API key
+    specified does not exist. Requests will not complete.
     """
 
 class RandomOrgKeyNotRunningError(Exception):
@@ -99,6 +124,23 @@ class RandomOrgInsufficientBitsError(Exception):
     client is currently issuing large requests it may be possible to 
     succeed with smaller requests. Use the client's getBitsLeft() call 
     to help determine if an alternative request size is appropriate.
+    """
+
+class RandomOrgKeyInvalidAccessError(Exception):
+    """
+    RandomOrgClient key is not valid for the method requested.
+    
+    Exception raised by the RandomOrgClient class when its API key 
+    is not valid for the method requested. Requests will not complete.
+    """
+
+class RandomOrgKeyInvalidVersionError(Exception):
+    """
+    RandomOrgClient key is not valid for the version of the API invoked. 
+    
+    Exception raised by the RandomOrgClient class when its API key 
+    is not valid for the version of the API invoked. Requests will not 
+    complete. 
     """
 
 class RandomOrgCache(object):
@@ -183,7 +225,8 @@ class RandomOrgCache(object):
             if self._bulk_request_number > 0:
                 
                 # Is there space for a bulk response in the queue?
-                if self._queue.qsize() < (self._queue.maxsize - self._bulk_request_number):
+                if self._queue.qsize() < (self._queue.maxsize 
+                                          - self._bulk_request_number):
                     
                     # Issue and process request and response.
                     try:
@@ -191,8 +234,15 @@ class RandomOrgCache(object):
                         result = self._process_function(response)
                         
                         # Split bulk response into result sets.
-                        for i in xrange(0, len(result), self._request_number):
-                            self._queue.put(result[i:i+self._request_number])
+                        try:
+                            # Python 2.7
+                            for i in xrange(0, len(result), self._request_number):
+                                self._queue.put(result[i:i+self._request_number])    
+                    
+                        except NameError:
+                            # Python 3+
+                            for i in range(0, len(result), self._request_number):
+                                self._queue.put(result[i:i+self._request_number])
                         
                     except Exception as e:
                         # Don't handle failures from _request_function()
@@ -296,9 +346,10 @@ class RandomOrgClient(object):
     Public methods:
     
     Basic methods for generating randomness, see:
-        https://api.random.org/json-rpc/1/basic
+        https://api.random.org/json-rpc/2/basic
     
     generate_integers -- get a list of random integers.
+    generate_integer_sequences -- get sequences of random integers.
     generate_decimal_fractions -- get a list of random doubles.
     generate_gaussians -- get a list of random numbers.
     generate_strings -- get a list of random strings.
@@ -306,10 +357,12 @@ class RandomOrgClient(object):
     generate_blobs -- get a list of random blobs.
     
     Signed methods for generating randomness, see:
-        https://api.random.org/json-rpc/1/signing
+        https://api.random.org/json-rpc/2/signed
     
     generate_signed_integers -- get a signed response containing a list
         of random integers and a signature.
+    generate_signed_integer_sequences -- get a signed response 
+        containing sequences of random integers and a signature.    
     generate_signed_decimal_fractions -- get a signed response
         containing a list of random doubles and a signature.
     generate_signed_gaussians -- get a signed response containing a
@@ -320,9 +373,15 @@ class RandomOrgClient(object):
         random UUIDs and a signature.
     generate_signed_blobs -- get a signed response containing a list of
         random blobs and a signature.
+        
+    Retrieving previously generated signed results (within 24h), see:
+        https://api.random.org/json-rpc/2/signed#getResult
+    
+    get_result -- retrieve previously generated signed results using
+       a serial number (restricted to within 24 hours after generation)
     
     Signature verification for signed methods, see:
-        https://api.random.org/json-rpc/1/signing
+        https://api.random.org/json-rpc/2/signed
     
     verify_signature -- verify a response against its signature.
     
@@ -330,6 +389,8 @@ class RandomOrgClient(object):
     
     create_integer_cache -- get a RandomOrgCache from which to obtain a 
         list of random integers.
+    create_integer_sequences_cache - get a RandomCache from which to 
+        obtain sequences of random integers.
     create_decimal_fraction_cache -- get a RandomOrgCache from which to
         obtain a list of random doubles.
     create_gaussian_cache -- get a RandomOrgCache from which to obtain
@@ -354,11 +415,12 @@ class RandomOrgClient(object):
         """
         Instance creation.
         
-        Ensure only one instace of RandomOrgClient exists per API key.
+        Ensure only one instance of RandomOrgClient exists per API key.
         Create a new instance if the supplied key isn't already known, 
         otherwise return the previously instantiated one.
         """
-        instance = RandomOrgClient.__key_indexed_instances.get(args[0], None)
+        instance = RandomOrgClient.__key_indexed_instances.get(args[0], 
+                                                               None)
         
         if instance is None:
             instance = object.__new__(cls)
@@ -367,7 +429,8 @@ class RandomOrgClient(object):
         return instance
     
     def __init__(self, api_key, 
-                 blocking_timeout=24.0*60.0*60.0, http_timeout=120.0, serialized=True):
+                 blocking_timeout=24.0*60.0*60.0, http_timeout=120.0, 
+                 serialized=True):
         """
         Constructor.
         
@@ -432,24 +495,28 @@ class RandomOrgClient(object):
             self._backoff_error = None
             
         else:
-            logging.info("Using RandomOrgClient instance already created for key \"" + api_key + "\"")
+            logging.info("Using RandomOrgClient instance already created for key \"" 
+                         + api_key + "\"")
     
     
     # Basic methods for generating randomness, see:
-    # https://api.random.org/json-rpc/1/basic
+    # https://api.random.org/json-rpc/2/basic
     
-    def generate_integers(self, n, min, max, replacement=True):
+    def generate_integers(self, n, min, max, replacement=True, base=10):
         """
         Generate random integers.
         
         Request and return a list (size n) of true random integers 
         within a user-defined range from the server. See:
-        https://api.random.org/json-rpc/1/basic#generateIntegers
+        https://api.random.org/json-rpc/2/basic#generateIntegers
         
         Raises a RandomOrgSendTimeoutError if time spent waiting before
         request is sent exceeds this instance's blocking_timeout.
         
-        Raises a RandomOrgKeyNotRunningError if this API key is stopped. 
+        Raises a RandomOrgKeyNonExistentError if this API key does not 
+        exist.
+        
+        Raises a RandomOrgKeyNotRunningError if this API key is stopped.
         
         Raises a RandomOrgInsufficientRequestsError if this API key's 
         server requests allowance has been exceeded and the instance is
@@ -458,11 +525,17 @@ class RandomOrgClient(object):
         Raises a RandomOrgInsufficientBitsError if this API key's 
         server bits allowance has been exceeded.
         
+        Raises a RandomOrgKeyInvalidAccessError if this API key is not 
+        valid for this method.
+        
+        Raises a RandomOrgKeyInvalidVersionError if this API key is not 
+        valid for the version of the API invoked.
+        
         Raises a ValueError on RANDOM.ORG Errors, error descriptions:
-        https://api.random.org/json-rpc/1/error-codes
+        https://api.random.org/json-rpc/2/error-codes
         
         Raises a RuntimeError on JSON-RPC Errors, error descriptions:
-        https://api.random.org/json-rpc/1/error-codes
+        https://api.random.org/json-rpc/2/error-codes
         
         Can also raise connection errors as described here:
         http://docs.python-requests.org/en/v2.0-0/user/quickstart/#errors-and-exceptions
@@ -479,12 +552,85 @@ class RandomOrgClient(object):
             picked with replacement. If True the resulting numbers may 
             contain duplicate values, otherwise the numbers will all be
             unique (default True).
+        base -- The base used to display the numbers in the sequences.
+            Must be an integer with the value 2, 8, 10 or 16.
         """
         
-        params = { 'apiKey':self._api_key, 'n':n, 'min':min, 'max':max, 'replacement':replacement }
+        params = { 'apiKey':self._api_key, 'n':n, 'min':min, 'max':max, 
+                  'replacement':replacement, 'base':base }
         request = self._generate_request(_INTEGER_METHOD, params)
         response = self._send_request(request)
         return self._extract_ints(response)
+    
+    def generate_integer_sequences(self, n, length, min, max, replacement=True, 
+                                   base=10):
+        """
+        Generate random integer sequences.
+        
+        Request and return a list (size n) of uniform or multiform 
+        sequences of true random integers 
+        within a user-defined range from the server. See:
+        https://api.random.org/json-rpc/2/basic#generateIntegerSequences
+        
+        Raises a RandomOrgSendTimeoutError if time spent waiting before
+        request is sent exceeds this instance's blocking_timeout.
+        
+        Raises a RandomOrgKeyNonExistentError if this API key does not 
+        exist.
+        
+        Raises a RandomOrgKeyNotRunningError if this API key is stopped.
+        
+        Raises a RandomOrgInsufficientRequestsError if this API key's 
+        server requests allowance has been exceeded and the instance is
+        backing off until midnight UTC.
+        
+        Raises a RandomOrgInsufficientBitsError if this API key's 
+        server bits allowance has been exceeded.
+        
+        Raises a RandomOrgKeyInvalidAccessError if this API key is not 
+        valid for this method.
+        
+        Raises a RandomOrgKeyInvalidVersionError if this API key is not 
+        valid for the version of the API invoked.
+        
+        Raises a ValueError on RANDOM.ORG Errors, error descriptions:
+        https://api.random.org/json-rpc/2/error-codes
+        
+        Raises a RuntimeError on JSON-RPC Errors, error descriptions:
+        https://api.random.org/json-rpc/2/error-codes
+        
+        Can also raise connection errors as described here:
+        http://docs.python-requests.org/en/v2.0-0/user/quickstart/#errors-and-exceptions
+        
+        Keyword arguments:
+        
+        n -- How many integer sequences you need. Must be within the 
+            [1,1e3] range.
+        length -- Lengths of the sequences requested. Uniform: Must be 
+            an integer within the [1,1e4] range. Multiform: an array of 
+            length n where each value is within the [1,1e4] range and 
+            the sum of all n values is within the [1,1e4] range.  
+        min -- The lower boundary for the range from which the random 
+            numbers will be picked. Must be within the [-1e9,1e9] range.
+        max -- The upper boundary for the range from which the random 
+            numbers will be picked. Must be within the [-1e9,1e9] range.
+        replacement -- Specifies whether the random numbers should be 
+            picked with replacement. If True the resulting numbers may 
+            contain duplicate values, otherwise the numbers will all be
+            unique (default True). For multiform sequences this can be
+            an array of n boolean values, each specifying whether the 
+            sequence identified by its index will be created with (true) 
+            or without (false) replacement.
+        base -- The base used to display the numbers in the sequences.
+            Must be an integer with the value 2, 8, 10 or 16. For multiform
+            sequences the values may be an array of length n with values 
+            taken from the same set.  
+        """
+        params = { 'apiKey':self._api_key, 'n':n, 'length':length, 'min':min, 
+                  'max':max, 'replacement':replacement, 'base':base}
+        request = self._generate_request(_INTEGER_SEQUENCES_METHOD, params)
+        response = self._send_request(request)
+        return self._extract_int_sequences(response)
     
     def generate_decimal_fractions(self, n, decimal_places, replacement=True):
         """
@@ -494,12 +640,15 @@ class RandomOrgClient(object):
         fractions, from a uniform distribution across the [0,1] 
         interval with a user-defined number of decimal places from the
         server. See:
-        https://api.random.org/json-rpc/1/basic#generateDecimalFractions
+        https://api.random.org/json-rpc/2/basic#generateDecimalFractions
         
         Raises a RandomOrgSendTimeoutError if time spent waiting before
         request is sent exceeds this instance's blocking_timeout.
         
-        Raises a RandomOrgKeyNotRunningError if this API key is stopped. 
+        Raises a RandomOrgKeyNonExistentError if this API key does not 
+        exist.
+        
+        Raises a RandomOrgKeyNotRunningError if this API key is stopped.
         
         Raises a RandomOrgInsufficientRequestsError if this API key's 
         server requests allowance has been exceeded and the instance is
@@ -508,11 +657,17 @@ class RandomOrgClient(object):
         Raises a RandomOrgInsufficientBitsError if this API key's 
         server bits allowance has been exceeded.
         
+        Raises a RandomOrgKeyInvalidAccessError if this API key is not 
+        valid for this method.
+        
+        Raises a RandomOrgKeyInvalidVersionError if this API key is not 
+        valid for the version of the API invoked.
+        
         Raises a ValueError on RANDOM.ORG Errors, error descriptions:
-        https://api.random.org/json-rpc/1/error-codes
+        https://api.random.org/json-rpc/2/error-codes
         
         Raises a RuntimeError on JSON-RPC Errors, error descriptions:
-        https://api.random.org/json-rpc/1/error-codes
+        https://api.random.org/json-rpc/2/error-codes
         
         Can also raise connection errors as described here:
         http://docs.python-requests.org/en/v2.0-0/user/quickstart/#errors-and-exceptions
@@ -543,12 +698,15 @@ class RandomOrgClient(object):
         a Gaussian distribution (also known as a normal distribution). 
         The form uses a Box-Muller Transform to generate the Gaussian 
         distribution from uniformly distributed numbers. See:
-        https://api.random.org/json-rpc/1/basic#generateGaussians
+        https://api.random.org/json-rpc/2/basic#generateGaussians
         
         Raises a RandomOrgSendTimeoutError if time spent waiting before
         request is sent exceeds this instance's blocking_timeout.
         
-        Raises a RandomOrgKeyNotRunningError if this API key is stopped. 
+        Raises a RandomOrgKeyNonExistentError if this API key does not 
+        exist.
+        
+        Raises a RandomOrgKeyNotRunningError if this API key is stopped.
         
         Raises a RandomOrgInsufficientRequestsError if this API key's 
         server requests allowance has been exceeded and the instance is
@@ -557,11 +715,17 @@ class RandomOrgClient(object):
         Raises a RandomOrgInsufficientBitsError if this API key's 
         server bits allowance has been exceeded.
         
+        Raises a RandomOrgKeyInvalidAccessError if this API key is not 
+        valid for this method.
+        
+        Raises a RandomOrgKeyInvalidVersionError if this API key is not 
+        valid for the version of the API invoked.
+        
         Raises a ValueError on RANDOM.ORG Errors, error descriptions:
-        https://api.random.org/json-rpc/1/error-codes
+        https://api.random.org/json-rpc/2/error-codes
         
         Raises a RuntimeError on JSON-RPC Errors, error descriptions:
-        https://api.random.org/json-rpc/1/error-codes
+        https://api.random.org/json-rpc/2/error-codes
         
         Can also raise connection errors as described here:
         http://docs.python-requests.org/en/v2.0-0/user/quickstart/#errors-and-exceptions
@@ -579,7 +743,8 @@ class RandomOrgClient(object):
         """
         
         params = { 'apiKey':self._api_key, 'n':n, 'mean':mean,
-                   'standardDeviation':standard_deviation, 'significantDigits':significant_digits }
+                   'standardDeviation':standard_deviation, 
+                   'significantDigits':significant_digits }
         request = self._generate_request(_GAUSSIAN_METHOD, params)
         response = self._send_request(request)
         return self._extract_doubles(response)
@@ -590,12 +755,15 @@ class RandomOrgClient(object):
         
         Request and return a list (size n) of true random unicode 
         strings from the server. See:
-        https://api.random.org/json-rpc/1/basic#generateStrings
+        https://api.random.org/json-rpc/2/basic#generateStrings
         
         Raises a RandomOrgSendTimeoutError if time spent waiting before
         request is sent exceeds this instance's blocking_timeout.
         
-        Raises a RandomOrgKeyNotRunningError if this API key is stopped. 
+        Raises a RandomOrgKeyNonExistentError if this API key does not 
+        exist.
+        
+        Raises a RandomOrgKeyNotRunningError if this API key is stopped.
         
         Raises a RandomOrgInsufficientRequestsError if this API key's 
         server requests allowance has been exceeded and the instance is
@@ -604,11 +772,17 @@ class RandomOrgClient(object):
         Raises a RandomOrgInsufficientBitsError if this API key's 
         server bits allowance has been exceeded.
         
+        Raises a RandomOrgKeyInvalidAccessError if this API key is not 
+        valid for this method.
+        
+        Raises a RandomOrgKeyInvalidVersionError if this API key is not 
+        valid for the version of the API invoked.
+        
         Raises a ValueError on RANDOM.ORG Errors, error descriptions:
-        https://api.random.org/json-rpc/1/error-codes
+        https://api.random.org/json-rpc/2/error-codes
         
         Raises a RuntimeError on JSON-RPC Errors, error descriptions:
-        https://api.random.org/json-rpc/1/error-codes
+        https://api.random.org/json-rpc/2/error-codes
         
         Can also raise connection errors as described here:
         http://docs.python-requests.org/en/v2.0-0/user/quickstart/#errors-and-exceptions
@@ -641,12 +815,15 @@ class RandomOrgClient(object):
         Request and return a list (size n) of version 4 true random 
         Universally Unique IDentifiers (UUIDs) in accordance with 
         section 4.4 of RFC 4122, from the server. See:
-        https://api.random.org/json-rpc/1/basic#generateUUIDs
+        https://api.random.org/json-rpc/2/basic#generateUUIDs
         
         Raises a RandomOrgSendTimeoutError if time spent waiting before
         request is sent exceeds this instance's blocking_timeout.
         
-        Raises a RandomOrgKeyNotRunningError if this API key is stopped. 
+        Raises a RandomOrgKeyNonExistentError if this API key does not 
+        exist.
+        
+        Raises a RandomOrgKeyNotRunningError if this API key is stopped.
         
         Raises a RandomOrgInsufficientRequestsError if this API key's 
         server requests allowance has been exceeded and the instance is
@@ -655,11 +832,17 @@ class RandomOrgClient(object):
         Raises a RandomOrgInsufficientBitsError if this API key's 
         server bits allowance has been exceeded.
         
+        Raises a RandomOrgKeyInvalidAccessError if this API key is not 
+        valid for this method.
+        
+        Raises a RandomOrgKeyInvalidVersionError if this API key is not 
+        valid for the version of the API invoked.
+        
         Raises a ValueError on RANDOM.ORG Errors, error descriptions:
-        https://api.random.org/json-rpc/1/error-codes
+        https://api.random.org/json-rpc/2/error-codes
         
         Raises a RuntimeError on JSON-RPC Errors, error descriptions:
-        https://api.random.org/json-rpc/1/error-codes
+        https://api.random.org/json-rpc/2/error-codes
         
         Can also raise connection errors as described here:
         http://docs.python-requests.org/en/v2.0-0/user/quickstart/#errors-and-exceptions
@@ -682,12 +865,15 @@ class RandomOrgClient(object):
         Request and return a list (size n) of Binary Large OBjects 
         (BLOBs) as unicode strings containing true random data from the
         server. See:
-        https://api.random.org/json-rpc/1/basic#generateBlobs
+        https://api.random.org/json-rpc/2/basic#generateBlobs
         
         Raises a RandomOrgSendTimeoutError if time spent waiting before
         request is sent exceeds this instance's blocking_timeout.
         
-        Raises a RandomOrgKeyNotRunningError if this API key is stopped. 
+        Raises a RandomOrgKeyNonExistentError if this API key does not 
+        exist.
+        
+        Raises a RandomOrgKeyNotRunningError if this API key is stopped.
         
         Raises a RandomOrgInsufficientRequestsError if this API key's 
         server requests allowance has been exceeded and the instance is
@@ -696,11 +882,17 @@ class RandomOrgClient(object):
         Raises a RandomOrgInsufficientBitsError if this API key's 
         server bits allowance has been exceeded.
         
+        Raises a RandomOrgKeyInvalidAccessError if this API key is not 
+        valid for this method.
+        
+        Raises a RandomOrgKeyInvalidVersionError if this API key is not 
+        valid for the version of the API invoked.
+        
         Raises a ValueError on RANDOM.ORG Errors, error descriptions:
-        https://api.random.org/json-rpc/1/error-codes
+        https://api.random.org/json-rpc/2/error-codes
         
         Raises a RuntimeError on JSON-RPC Errors, error descriptions:
-        https://api.random.org/json-rpc/1/error-codes
+        https://api.random.org/json-rpc/2/error-codes
         
         Can also raise connection errors as described here:
         http://docs.python-requests.org/en/v2.0-0/user/quickstart/#errors-and-exceptions
@@ -723,9 +915,10 @@ class RandomOrgClient(object):
     
     
     # Signed methods for generating randomness, see:
-    # https://api.random.org/json-rpc/1/signing
+    # https://api.random.org/json-rpc/2/signed
     
-    def generate_signed_integers(self, n, min, max, replacement=True):
+    def generate_signed_integers(self, n, min, max, replacement=True, 
+                                 base=10, user_data=None):
         """
         Generate digitally signed random integers.
         
@@ -734,12 +927,15 @@ class RandomOrgClient(object):
         with the parsed integer list mapped to 'data', the original 
         response mapped to 'random', and the response's signature 
         mapped to 'signature'. See:
-        https://api.random.org/json-rpc/1/signing#generateSignedIntegers
+        https://api.random.org/json-rpc/2/signed#generateSignedIntegers
         
         Raises a RandomOrgSendTimeoutError if time spent waiting before
         request is sent exceeds this instance's blocking_timeout.
         
-        Raises a RandomOrgKeyNotRunningError if this API key is stopped. 
+        Raises a RandomOrgKeyNonExistentError if this API key does not 
+        exist.
+        
+        Raises a RandomOrgKeyNotRunningError if this API key is stopped.
         
         Raises a RandomOrgInsufficientRequestsError if this API key's 
         server requests allowance has been exceeded and the instance is
@@ -748,11 +944,17 @@ class RandomOrgClient(object):
         Raises a RandomOrgInsufficientBitsError if this API key's 
         server bits allowance has been exceeded.
         
+        Raises a RandomOrgKeyInvalidAccessError if this API key is not 
+        valid for this method.
+        
+        Raises a RandomOrgKeyInvalidVersionError if this API key is not 
+        valid for the version of the API invoked.
+        
         Raises a ValueError on RANDOM.ORG Errors, error descriptions:
-        https://api.random.org/json-rpc/1/error-codes
+        https://api.random.org/json-rpc/2/error-codes
         
         Raises a RuntimeError on JSON-RPC Errors, error descriptions:
-        https://api.random.org/json-rpc/1/error-codes
+        https://api.random.org/json-rpc/2/error-codes
         
         Can also raise connection errors as described here:
         http://docs.python-requests.org/en/v2.0-0/user/quickstart/#errors-and-exceptions
@@ -769,14 +971,101 @@ class RandomOrgClient(object):
             picked with replacement. If True the resulting numbers may 
             contain duplicate values, otherwise the numbers will all be
             unique (default True).
+        base -- The base used to display the numbers in the sequences.
+            Must be an integer with the value 2, 8, 10 or 16.
+        user_data -- Contains an optional object that will be included 
+            in unmodified form in the signed response along with the 
+            random data. If an object is present, its maximum size in 
+            encoded (string) form is 1,000 characters.
         """
         
-        params = { 'apiKey':self._api_key, 'n':n, 'min':min, 'max':max, 'replacement':replacement }
+        params = { 'apiKey':self._api_key, 'n':n, 'min':min, 'max':max, 
+                  'replacement':replacement, 'base':base, 'userData':user_data }
         request = self._generate_request(_SIGNED_INTEGER_METHOD, params)
         response = self._send_request(request)
         return self._extract_signed_response(response, self._extract_ints)
     
-    def generate_signed_decimal_fractions(self, n, decimal_places, replacement=True):
+    def generate_signed_integer_sequences(self, n, length, min, max,
+                                          replacement=True, base=10,
+                                          user_data=None):
+        """
+        Generate digitally signed sequences of random integers.
+        
+        Request a list (size n) of sequences of true random integers within 
+        a user-defined range from the server. Returns a dictionary object 
+        with the parsed integer list mapped to 'data', the original 
+        response mapped to 'random', and the response's signature 
+        mapped to 'signature'. See:
+        https://api.random.org/json-rpc/2/signed#generateSignedIntegerSequences
+        
+        Raises a RandomOrgSendTimeoutError if time spent waiting before
+        request is sent exceeds this instance's blocking_timeout.
+        
+        Raises a RandomOrgKeyNonExistentError if this API key does not 
+        exist.
+        
+        Raises a RandomOrgKeyNotRunningError if this API key is stopped.
+        
+        Raises a RandomOrgInsufficientRequestsError if this API key's 
+        server requests allowance has been exceeded and the instance is
+        backing off until midnight UTC.
+        
+        Raises a RandomOrgInsufficientBitsError if this API key's 
+        server bits allowance has been exceeded.
+        
+        Raises a RandomOrgKeyInvalidAccessError if this API key is not 
+        valid for this method.
+        
+        Raises a RandomOrgKeyInvalidVersionError if this API key is not 
+        valid for the version of the API invoked.
+        
+        Raises a ValueError on RANDOM.ORG Errors, error descriptions:
+        https://api.random.org/json-rpc/2/error-codes
+        
+        Raises a RuntimeError on JSON-RPC Errors, error descriptions:
+        https://api.random.org/json-rpc/2/error-codes
+        
+        Can also raise connection errors as described here:
+        http://docs.python-requests.org/en/v2.0-0/user/quickstart/#errors-and-exceptions
+        
+        Keyword arguments:
+        
+        n -- How many integer sequences you need. Must be within the 
+            [1,1e3] range.
+        length -- Lengths of the sequences requested. Uniform: Must be 
+            an integer within the [1,1e4] range. Multiform: an array of 
+            length n where each value is within the [1,1e4] range and 
+            the sum of all n values is within the [1,1e4] range.  
+        min -- The lower boundary for the range from which the random 
+            numbers will be picked. Must be within the [-1e9,1e9] range.
+        max -- The upper boundary for the range from which the random 
+            numbers will be picked. Must be within the [-1e9,1e9] range.
+        replacement -- Specifies whether the random numbers should be 
+            picked with replacement. If True the resulting numbers may 
+            contain duplicate values, otherwise the numbers will all be
+            unique (default True). For multiform sequences this can be
+            an array of n boolean values, each specifying whether the 
+            sequence identified by its index will be created with (true) 
+            or without (false) replacement.
+        base -- The base used to display the numbers in the sequences.
+            Must be an integer with the value 2, 8, 10 or 16. For multiform
+            sequences the values may be an array of length n with values 
+            taken from the same set.
+        user_data -- Contains an optional object that will be included 
+            in unmodified form in the signed response along with the 
+            random data. If an object is present, its maximum size in 
+            encoded (string) form is 1,000 characters.
+        """
+        
+        params = { 'apiKey':self._api_key, 'n':n, 'length':length, 'min':min,
+                  'max':max, 'replacement':replacement, 'base':base, 
+                  'userData':user_data}
+        request = self._generate_request(_SIGNED_INTEGER_SEQUENCES_METHOD, params)
+        response = self._send_request(request)
+        return self._extract_signed_response(response, self._extract_int_sequences)
+    
+    def generate_signed_decimal_fractions(self, n, decimal_places,
+                                          replacement=True, user_data=None):
         """
         Generate digitally signed random decimal fractions.
         
@@ -786,12 +1075,15 @@ class RandomOrgClient(object):
         a dictionary object with the parsed decimal fraction list 
         mapped to 'data', the original response mapped to 'random', and
         the response's signature mapped to 'signature'. See:
-        https://api.random.org/json-rpc/1/signing#generateSignedDecimalFractions
+        https://api.random.org/json-rpc/2/signed#generateSignedDecimalFractions
         
         Raises a RandomOrgSendTimeoutError if time spent waiting before
         request is sent exceeds this instance's blocking_timeout.
         
-        Raises a RandomOrgKeyNotRunningError if this API key is stopped. 
+        Raises a RandomOrgKeyNonExistentError if this API key does not 
+        exist.
+        
+        Raises a RandomOrgKeyNotRunningError if this API key is stopped.
         
         Raises a RandomOrgInsufficientRequestsError if this API key's 
         server requests allowance has been exceeded and the instance is
@@ -800,11 +1092,17 @@ class RandomOrgClient(object):
         Raises a RandomOrgInsufficientBitsError if this API key's 
         server bits allowance has been exceeded.
         
+        Raises a RandomOrgKeyInvalidAccessError if this API key is not 
+        valid for this method.
+        
+        Raises a RandomOrgKeyInvalidVersionError if this API key is not 
+        valid for the version of the API invoked.
+        
         Raises a ValueError on RANDOM.ORG Errors, error descriptions:
-        https://api.random.org/json-rpc/1/error-codes
+        https://api.random.org/json-rpc/2/error-codes
         
         Raises a RuntimeError on JSON-RPC Errors, error descriptions:
-        https://api.random.org/json-rpc/1/error-codes
+        https://api.random.org/json-rpc/2/error-codes
         
         Can also raise connection errors as described here:
         http://docs.python-requests.org/en/v2.0-0/user/quickstart/#errors-and-exceptions
@@ -819,15 +1117,21 @@ class RandomOrgClient(object):
             picked with replacement. If True the resulting numbers may 
             contain duplicate values, otherwise the numbers will all be
             unique (default True).
+        user_data -- Contains an optional object that will be included 
+            in unmodified form in the signed response along with the 
+            random data. If an object is present, its maximum size in 
+            encoded (string) form is 1,000 characters.
         """
         
         params = { 'apiKey':self._api_key, 'n':n, 
-                   'decimalPlaces':decimal_places, 'replacement':replacement }
+                   'decimalPlaces':decimal_places, 'replacement':replacement,
+                   'userData':user_data }
         request = self._generate_request(_SIGNED_DECIMAL_FRACTION_METHOD, params)
         response = self._send_request(request)
         return self._extract_signed_response(response, self._extract_doubles)
     
-    def generate_signed_gaussians(self, n, mean, standard_deviation, significant_digits):
+    def generate_signed_gaussians(self, n, mean, standard_deviation, 
+                                  significant_digits, user_data=None):
         """
         Generate digitally signed random numbers.
         
@@ -838,12 +1142,15 @@ class RandomOrgClient(object):
         dictionary object with the parsed random number list mapped to
         'data', the original response mapped to 'random', and the 
         response's signature mapped to 'signature'. See:
-        https://api.random.org/json-rpc/1/signing#generateSignedGaussians
+        https://api.random.org/json-rpc/2/signed#generateSignedGaussians
         
         Raises a RandomOrgSendTimeoutError if time spent waiting before
         request is sent exceeds this instance's blocking_timeout.
         
-        Raises a RandomOrgKeyNotRunningError if this API key is stopped. 
+        Raises a RandomOrgKeyNonExistentError if this API key does not 
+        exist.
+        
+        Raises a RandomOrgKeyNotRunningError if this API key is stopped.
         
         Raises a RandomOrgInsufficientRequestsError if this API key's 
         server requests allowance has been exceeded and the instance is
@@ -852,11 +1159,17 @@ class RandomOrgClient(object):
         Raises a RandomOrgInsufficientBitsError if this API key's 
         server bits allowance has been exceeded.
         
+        Raises a RandomOrgKeyInvalidAccessError if this API key is not 
+        valid for this method.
+        
+        Raises a RandomOrgKeyInvalidVersionError if this API key is not 
+        valid for the version of the API invoked.
+        
         Raises a ValueError on RANDOM.ORG Errors, error descriptions:
-        https://api.random.org/json-rpc/1/error-codes
+        https://api.random.org/json-rpc/2/error-codes
         
         Raises a RuntimeError on JSON-RPC Errors, error descriptions:
-        https://api.random.org/json-rpc/1/error-codes
+        https://api.random.org/json-rpc/2/error-codes
         
         Can also raise connection errors as described here:
         http://docs.python-requests.org/en/v2.0-0/user/quickstart/#errors-and-exceptions
@@ -871,15 +1184,22 @@ class RandomOrgClient(object):
             Must be within the [-1e6,1e6] range.
         significant_digits -- The number of significant digits to use. 
             Must be within the [2,20] range.
+        user_data -- Contains an optional object that will be included 
+            in unmodified form in the signed response along with the 
+            random data. If an object is present, its maximum size in 
+            encoded (string) form is 1,000 characters.
         """
         
         params = { 'apiKey':self._api_key, 'n':n, 'mean':mean,
-                   'standardDeviation':standard_deviation, 'significantDigits':significant_digits }
+                   'standardDeviation':standard_deviation, 
+                   'significantDigits':significant_digits,
+                   'userData':user_data }
         request = self._generate_request(_SIGNED_GAUSSIAN_METHOD, params)
         response = self._send_request(request)
         return self._extract_signed_response(response, self._extract_doubles)
     
-    def generate_signed_strings(self, n, length, characters, replacement=True):
+    def generate_signed_strings(self, n, length, characters, 
+                                replacement=True, user_data=None):
         """
         Generate digitally signed random strings.
         
@@ -887,12 +1207,15 @@ class RandomOrgClient(object):
         Returns a dictionary object with the parsed random string list 
         mapped to 'data', the original response mapped to 'random', and
         the response's signature mapped to 'signature'. See:
-        https://api.random.org/json-rpc/1/signing#generateSignedStrings
+        https://api.random.org/json-rpc/2/signed#generateSignedStrings
         
         Raises a RandomOrgSendTimeoutError if time spent waiting before
         request is sent exceeds this instance's blocking_timeout.
         
-        Raises a RandomOrgKeyNotRunningError if this API key is stopped. 
+        Raises a RandomOrgKeyNonExistentError if this API key does not 
+        exist.
+        
+        Raises a RandomOrgKeyNotRunningError if this API key is stopped.
         
         Raises a RandomOrgInsufficientRequestsError if this API key's 
         server requests allowance has been exceeded and the instance is
@@ -901,11 +1224,17 @@ class RandomOrgClient(object):
         Raises a RandomOrgInsufficientBitsError if this API key's 
         server bits allowance has been exceeded.
         
+        Raises a RandomOrgKeyInvalidAccessError if this API key is not 
+        valid for this method.
+        
+        Raises a RandomOrgKeyInvalidVersionError if this API key is not 
+        valid for the version of the API invoked.
+        
         Raises a ValueError on RANDOM.ORG Errors, error descriptions:
-        https://api.random.org/json-rpc/1/error-codes
+        https://api.random.org/json-rpc/2/error-codes
         
         Raises a RuntimeError on JSON-RPC Errors, error descriptions:
-        https://api.random.org/json-rpc/1/error-codes
+        https://api.random.org/json-rpc/2/error-codes
         
         Can also raise connection errors as described here:
         http://docs.python-requests.org/en/v2.0-0/user/quickstart/#errors-and-exceptions
@@ -923,15 +1252,20 @@ class RandomOrgClient(object):
             picked with replacement. If True the resulting list of 
             strings may contain duplicates, otherwise the strings will 
             all be unique (default True).
+        user_data -- Contains an optional object that will be included 
+            in unmodified form in the signed response along with the 
+            random data. If an object is present, its maximum size in 
+            encoded (string) form is 1,000 characters.
         """
         
         params = { 'apiKey':self._api_key, 'n':n, 'length':length, 
-                   'characters':characters, 'replacement':replacement }
+                   'characters':characters, 'replacement':replacement,
+                   'userData':user_data }
         request = self._generate_request(_SIGNED_STRING_METHOD, params)
         response = self._send_request(request)
         return self._extract_signed_response(response, self._extract_strings)
     
-    def generate_signed_UUIDs(self, n):
+    def generate_signed_UUIDs(self, n, user_data=None):
         """
         Generate digitally signed random UUIDs.
         
@@ -941,12 +1275,15 @@ class RandomOrgClient(object):
         parsed random UUID list mapped to 'data', the original response
         mapped to 'random', and the response's signature mapped to 
         'signature'. See:
-        https://api.random.org/json-rpc/1/signing#generateSignedUUIDs
+        https://api.random.org/json-rpc/2/signed#generateSignedUUIDs
         
         Raises a RandomOrgSendTimeoutError if time spent waiting before
         request is sent exceeds this instance's blocking_timeout.
         
-        Raises a RandomOrgKeyNotRunningError if this API key is stopped. 
+        Raises a RandomOrgKeyNonExistentError if this API key does not 
+        exist.
+        
+        Raises a RandomOrgKeyNotRunningError if this API key is stopped.
         
         Raises a RandomOrgInsufficientRequestsError if this API key's 
         server requests allowance has been exceeded and the instance is
@@ -955,11 +1292,17 @@ class RandomOrgClient(object):
         Raises a RandomOrgInsufficientBitsError if this API key's 
         server bits allowance has been exceeded.
         
+        Raises a RandomOrgKeyInvalidAccessError if this API key is not 
+        valid for this method.
+        
+        Raises a RandomOrgKeyInvalidVersionError if this API key is not 
+        valid for the version of the API invoked.
+        
         Raises a ValueError on RANDOM.ORG Errors, error descriptions:
-        https://api.random.org/json-rpc/1/error-codes
+        https://api.random.org/json-rpc/2/error-codes
         
         Raises a RuntimeError on JSON-RPC Errors, error descriptions:
-        https://api.random.org/json-rpc/1/error-codes
+        https://api.random.org/json-rpc/2/error-codes
         
         Can also raise connection errors as described here:
         http://docs.python-requests.org/en/v2.0-0/user/quickstart/#errors-and-exceptions
@@ -968,14 +1311,19 @@ class RandomOrgClient(object):
         
         n -- How many random UUIDs you need. Must be within the [1,1e3]
             range.
+        user_data -- Contains an optional object that will be included 
+            in unmodified form in the signed response along with the 
+            random data. If an object is present, its maximum size in 
+            encoded (string) form is 1,000 characters.
         """
         
-        params = { 'apiKey':self._api_key, 'n':n }
+        params = { 'apiKey':self._api_key, 'n':n, 'userData':user_data }
         request = self._generate_request(_SIGNED_UUID_METHOD, params)
         response = self._send_request(request)
         return self._extract_signed_response(response, self._extract_UUIDs)
     
-    def generate_signed_blobs(self, n, size, format=_BLOB_FORMAT_BASE64):
+    def generate_signed_blobs(self, n, size, format=_BLOB_FORMAT_BASE64,
+                              user_data=None):
         """
         Generate digitally signed random BLOBs.
         
@@ -984,12 +1332,15 @@ class RandomOrgClient(object):
         dictionary object with the parsed random BLOB list mapped to 
         'data', the original response mapped to 'random', and the 
         response's signature mapped to 'signature'. See:
-        https://api.random.org/json-rpc/1/signing#generateSignedBlobs
+        https://api.random.org/json-rpc/2/signed#generateSignedBlobs
         
         Raises a RandomOrgSendTimeoutError if time spent waiting before
         request is sent exceeds this instance's blocking_timeout.
         
-        Raises a RandomOrgKeyNotRunningError if this API key is stopped. 
+        Raises a RandomOrgKeyNonExistentError if this API key does not 
+        exist.
+        
+        Raises a RandomOrgKeyNotRunningError if this API key is stopped.
         
         Raises a RandomOrgInsufficientRequestsError if this API key's 
         server requests allowance has been exceeded and the instance is
@@ -998,11 +1349,17 @@ class RandomOrgClient(object):
         Raises a RandomOrgInsufficientBitsError if this API key's 
         server bits allowance has been exceeded.
         
+        Raises a RandomOrgKeyInvalidAccessError if this API key is not 
+        valid for this method.
+        
+        Raises a RandomOrgKeyInvalidVersionError if this API key is not 
+        valid for the version of the API invoked.
+        
         Raises a ValueError on RANDOM.ORG Errors, error descriptions:
-        https://api.random.org/json-rpc/1/error-codes
+        https://api.random.org/json-rpc/2/error-codes
         
         Raises a RuntimeError on JSON-RPC Errors, error descriptions:
-        https://api.random.org/json-rpc/1/error-codes
+        https://api.random.org/json-rpc/2/error-codes
         
         Can also raise connection errors as described here:
         http://docs.python-requests.org/en/v2.0-0/user/quickstart/#errors-and-exceptions
@@ -1016,16 +1373,68 @@ class RandomOrgClient(object):
         format -- Specifies the format in which the blobs will be 
             returned. Values allowed are _BLOB_FORMAT_BASE64 and 
             _BLOB_FORMAT_HEX (default _BLOB_FORMAT_BASE64).
+        user_data -- Contains an optional object that will be included 
+            in unmodified form in the signed response along with the 
+            random data. If an object is present, its maximum size in 
+            encoded (string) form is 1,000 characters.
         """
         
-        params = { 'apiKey':self._api_key, 'n':n, 'size':size, 'format':format }
+        params = { 'apiKey':self._api_key, 'n':n, 'size':size, 
+                  'format':format, 'userData':user_data }
         request = self._generate_request(_SIGNED_BLOB_METHOD, params)
         response = self._send_request(request)
         return self._extract_signed_response(response, self._extract_blobs)
     
+    def get_result(self, serial_number):
+        """
+        Retrieve previously generated results. 
+        
+        Retrieve results generated using signed methods within the last 
+        24 hours using its serialNumber. See:
+        https://api.random.org/json-rpc/2/signed#getResult  
+        
+        Raises a RandomOrgSendTimeoutError if time spent waiting before
+        request is sent exceeds this instance's blocking_timeout.
+        
+        Raises a RandomOrgKeyNonExistentError if this API key does not 
+        exist.
+        
+        Raises a RandomOrgKeyNotRunningError if this API key is stopped.
+        
+        Raises a RandomOrgInsufficientRequestsError if this API key's 
+        server requests allowance has been exceeded and the instance is
+        backing off until midnight UTC.
+        
+        Raises a RandomOrgInsufficientBitsError if this API key's 
+        server bits allowance has been exceeded.
+        
+        Raises a RandomOrgKeyInvalidAccessError if this API key is not 
+        valid for this method.
+        
+        Raises a RandomOrgKeyInvalidVersionError if this API key is not 
+        valid for the version of the API invoked.
+        
+        Raises a ValueError on RANDOM.ORG Errors, error descriptions:
+        https://api.random.org/json-rpc/2/error-codes
+        
+        Raises a RuntimeError on JSON-RPC Errors, error descriptions:
+        https://api.random.org/json-rpc/2/error-codes
+        
+        Can also raise connection errors as described here:
+        http://docs.python-requests.org/en/v2.0-0/user/quickstart/#errors-and-exceptions
+        
+        Keyword arguments:
+        serial_number -- An integer containing the serial number 
+            associated with the response you wish to retrieve.
+        
+        """
+        params = { 'apiKey':self._api_key, 'serialNumber':serial_number}
+        request = self._generate_request(_GET_RESULT_METHOD, params)
+        response = self._send_request(request)
+        return self._extract_signed_response(response, self._extract_response)
     
     # Signature verification for signed methods, see:
-    # https://api.random.org/json-rpc/1/signing
+    # https://api.random.org/json-rpc/2/signed
     
     def verify_signature(self, random, signature):
         """
@@ -1035,12 +1444,15 @@ class RandomOrgClient(object):
         of the methods in the Signed API with the server. This is used
         to examine the authenticity of numbers. Return True on 
         verification success. See:
-        https://api.random.org/json-rpc/1/signing#verifySignature
+        https://api.random.org/json-rpc/2/signed#verifySignature
         
         Raises a RandomOrgSendTimeoutError if time spent waiting before
         request is sent exceeds this instance's blocking_timeout.
         
-        Raises a RandomOrgKeyNotRunningError if this API key is stopped. 
+        Raises a RandomOrgKeyNonExistentError if this API key does not 
+        exist.
+        
+        Raises a RandomOrgKeyNotRunningError if this API key is stopped.
         
         Raises a RandomOrgInsufficientRequestsError if this API key's 
         server requests allowance has been exceeded and the instance is
@@ -1049,11 +1461,17 @@ class RandomOrgClient(object):
         Raises a RandomOrgInsufficientBitsError if this API key's 
         server bits allowance has been exceeded.
         
+        Raises a RandomOrgKeyInvalidAccessError if this API key is not 
+        valid for this method.
+        
+        Raises a RandomOrgKeyInvalidVersionError if this API key is not 
+        valid for the version of the API invoked.
+        
         Raises a ValueError on RANDOM.ORG Errors, error descriptions:
-        https://api.random.org/json-rpc/1/error-codes
+        https://api.random.org/json-rpc/2/error-codes
         
         Raises a RuntimeError on JSON-RPC Errors, error descriptions:
-        https://api.random.org/json-rpc/1/error-codes
+        https://api.random.org/json-rpc/2/error-codes
         
         Can also raise connection errors as described here:
         http://docs.python-requests.org/en/v2.0-0/user/quickstart/#errors-and-exceptions
@@ -1074,7 +1492,8 @@ class RandomOrgClient(object):
     
     # Methods used to create a cache for any given randomness request.
     
-    def create_integer_cache(self, n, min, max, replacement=True, cache_size=20):
+    def create_integer_cache(self, n, min, max, replacement=True, 
+                             base=10, cache_size=20):
         """
         Get a RandomOrgCache to obtain random integers.
         
@@ -1095,6 +1514,8 @@ class RandomOrgClient(object):
             picked with replacement. If True the resulting numbers may 
             contain duplicate values, otherwise the numbers will all be
             unique (default True).
+        base -- The base used to display the numbers in the sequences.
+            Must be an integer with the value 2, 8, 10 or 16.
         cache_size -- Number of result-sets for the cache to try to 
             maintain at any given time (default 20, minimum 2).
         """
@@ -1108,13 +1529,15 @@ class RandomOrgClient(object):
         if replacement:
             bulk_n = cache_size/2 if 5 >= cache_size else 5
             params = { 'apiKey':self._api_key, 'n':bulk_n*n, 
-                       'min':min, 'max':max, 'replacement':replacement }
+                       'min':min, 'max':max, 'replacement':replacement, 
+                       'base':base }
         
         # not possible to make the request more efficient
         else:
             bulk_n = 0
             params = { 'apiKey':self._api_key, 'n':n, 
-                       'min':min, 'max':max, 'replacement':replacement }
+                       'min':min, 'max':max, 'replacement':replacement, 
+                       'base':base }
         
         # get the request object for use in all requests from this cache
         request = self._generate_request(_INTEGER_METHOD, params)
@@ -1122,7 +1545,67 @@ class RandomOrgClient(object):
         return RandomOrgCache(self._send_request, self._extract_ints, 
                               request, cache_size, bulk_n, n)
     
-    def create_decimal_fraction_cache(self, n, decimal_places, replacement=True, cache_size=20):
+    def create_integer_sequences_cache(self, n, length, min, max, 
+                                       replacement=True, base=10, 
+                                       cache_size=20):
+        """
+        Get a RandomOrgCache to obtain random integer sequences.
+        
+        The RandomOrgCache can be polled for new results conforming to 
+        the output format of the input request. See output of 
+        generate_integers() for the return value of a poll on 
+        RandomOrgCache.
+        
+        Keyword arguments:
+        
+        n -- How many sequences of random integers you need. Must be 
+            within the [1,1e3] range.
+        length -- Lengths of the sequences requested. Uniform: Must be 
+            an integer within the [1,1e4] range. Multiform: an array of 
+            length n where each value is within the [1,1e4] range and 
+            the sum of all n values is within the [1,1e4] range.  
+        min -- The lower boundary for the range from which the random 
+            numbers will be picked. Must be within the [-1e9,1e9] range.
+        max -- The upper boundary for the range from which the random 
+            numbers will be picked. Must be within the [-1e9,1e9] range.
+        replacement -- Specifies whether the random numbers should be 
+            picked with replacement. If True the resulting numbers may 
+            contain duplicate values, otherwise the numbers will all be
+            unique (default True).
+        base -- The base used to display the numbers in the sequences.
+            Must be an integer with the value 2, 8, 10 or 16.
+        cache_size -- Number of result-sets for the cache to try to 
+            maintain at any given time (default 20, minimum 2).
+        """
+        
+        if cache_size < 2:
+            cache_size = 2
+            
+        # if possible, make requests more efficient by bulk-ordering 
+        # from the server. Either 5 sets of items at a time, or 
+        # cache_size/2 if 5 >= cache_size.
+        if replacement:
+            bulk_n = cache_size/2 if 5 >= cache_size else 5
+            params = { 'apiKey':self._api_key, 'n':bulk_n*n, 
+                      'length':length, 'min':min, 'max':max, 
+                      'replacement':replacement, 'base':base }
+        
+        # not possible to make the request more efficient
+        else:
+            bulk_n = 0
+            params = { 'apiKey':self._api_key, 'n':n, 'length':length, 
+                       'min':min, 'max':max, 'replacement':replacement, 
+                       'base':base }
+        
+        # get the request object for use in all requests from this cache
+        request = self._generate_request(_INTEGER_SEQUENCES_METHOD, params)
+        
+        return RandomOrgCache(self._send_request, 
+                              self._extract_int_sequences, 
+                              request, cache_size, bulk_n, n)
+    
+    def create_decimal_fraction_cache(self, n, decimal_places, replacement=True,
+                                       cache_size=20):
         """
         Get a RandomOrgCache to obtain random decimal fractions.
         
@@ -1154,13 +1637,15 @@ class RandomOrgClient(object):
         if replacement:
             bulk_n = cache_size/2 if 5 >= cache_size else 5
             params = { 'apiKey':self._api_key, 'n':bulk_n*n, 
-                       'decimalPlaces':decimal_places, 'replacement':replacement }
+                       'decimalPlaces':decimal_places, 
+                       'replacement':replacement }
         
         # not possible to make the request more efficient
         else:
             bulk_n = 0
             params = { 'apiKey':self._api_key, 'n':n, 
-                       'decimalPlaces':decimal_places, 'replacement':replacement }
+                       'decimalPlaces':decimal_places, 
+                       'replacement':replacement }
         
         # get the request object for use in all requests from this cache
         request = self._generate_request(_DECIMAL_FRACTION_METHOD, params)
@@ -1168,7 +1653,8 @@ class RandomOrgClient(object):
         return RandomOrgCache(self._send_request, self._extract_doubles, 
                               request, cache_size, bulk_n, n)
     
-    def create_gaussian_cache(self, n, mean, standard_deviation, significant_digits, cache_size=20):
+    def create_gaussian_cache(self, n, mean, standard_deviation, 
+                              significant_digits, cache_size=20):
         """
         Get a RandomOrgCache to obtain random numbers.
         
@@ -1199,7 +1685,8 @@ class RandomOrgClient(object):
         # if 5 >= cache_size.
         bulk_n = cache_size/2 if 5 >= cache_size else 5
         params = { 'apiKey':self._api_key, 'n':bulk_n*n, 'mean':mean,
-                   'standardDeviation':standard_deviation, 'significantDigits':significant_digits }
+                   'standardDeviation':standard_deviation, 
+                   'significantDigits':significant_digits }
         
         # get the request object for use in all requests from this cache
         request = self._generate_request(_GAUSSIAN_METHOD, params)
@@ -1207,7 +1694,8 @@ class RandomOrgClient(object):
         return RandomOrgCache(self._send_request, self._extract_doubles,
                               request, cache_size, bulk_n, n)
     
-    def create_string_cache(self, n, length, characters, replacement=True, cache_size=20):
+    def create_string_cache(self, n, length, characters, replacement=True, 
+                            cache_size=20):
         """
         Get a RandomOrgCache to obtain random strings.
         
@@ -1288,7 +1776,8 @@ class RandomOrgClient(object):
         return RandomOrgCache(self._send_request, self._extract_UUIDs, 
                               request, cache_size, bulk_n, n)
     
-    def create_blob_cache(self, n, size, format=_BLOB_FORMAT_BASE64, cache_size=10):
+    def create_blob_cache(self, n, size, format=_BLOB_FORMAT_BASE64, 
+                          cache_size=10):
         """
         Get a RandomOrgCache to obtain random blobs.
         
@@ -1317,7 +1806,8 @@ class RandomOrgClient(object):
         # from the server. Either 5 sets of items at a time, or 
         # cache_size/2 if 5 >= cache_size.
         bulk_n = cache_size/2 if 5 >= cache_size else 5
-        params = { 'apiKey':self._api_key, 'n':bulk_n*n, 'size':size, 'format':format }
+        params = { 'apiKey':self._api_key, 'n':bulk_n*n, 'size':size, 
+                  'format':format }
         
         # get the request object for use in all requests from this cache
         request = self._generate_request(_BLOB_METHOD, params)
@@ -1341,6 +1831,9 @@ class RandomOrgClient(object):
         Raises a RandomOrgSendTimeoutError if time spent waiting before
         request is sent exceeds this instance's blocking_timeout.
         
+        Raises a RandomOrgKeyNonExistentError if this API key does not 
+        exist.
+        
         Raises a RandomOrgKeyNotRunningError if this API key is stopped. 
         
         Raises a RandomOrgInsufficientRequestsError if this API key's 
@@ -1351,18 +1844,26 @@ class RandomOrgClient(object):
         server bits allowance has been exceeded.
         
         Raises a ValueError on RANDOM.ORG Errors, error descriptions:
-        https://api.random.org/json-rpc/1/error-codes
+        https://api.random.org/json-rpc/2/error-codes
         
         Raises a RuntimeError on JSON-RPC Errors, error descriptions:
-        https://api.random.org/json-rpc/1/error-codes
+        https://api.random.org/json-rpc/2/error-codes
         
         Can also raise connection errors as described here:
         http://docs.python-requests.org/en/v2.0-0/user/quickstart/#errors-and-exceptions
         """
-        if self._requests_left is None or \
-           time.clock() > self._last_response_received_time + _ALLOWANCE_STATE_REFRESH_SECONDS:
-            self._get_usage()
-        
+        try:
+            # Python 2.7
+            if self._requests_left is None or \
+               time.clock() > (self._last_response_received_time 
+                               + _ALLOWANCE_STATE_REFRESH_SECONDS):
+                self._get_usage()
+        except AttributeError:
+            # Python 3.3+
+            if self._requests_left is None or \
+               time.process_time() > (self._last_response_received_time 
+                                      + _ALLOWANCE_STATE_REFRESH_SECONDS):
+                self._get_usage()
         return self._requests_left
     
     def get_bits_left(self):
@@ -1378,6 +1879,9 @@ class RandomOrgClient(object):
         Raises a RandomOrgSendTimeoutError if time spent waiting before
         request is sent exceeds this instance's blocking_timeout.
         
+        Raises a RandomOrgKeyNonExistentError if this API key does not 
+        exist.
+        
         Raises a RandomOrgKeyNotRunningError if this API key is stopped. 
         
         Raises a RandomOrgInsufficientRequestsError if this API key's 
@@ -1388,18 +1892,26 @@ class RandomOrgClient(object):
         server bits allowance has been exceeded.
         
         Raises a ValueError on RANDOM.ORG Errors, error descriptions:
-        https://api.random.org/json-rpc/1/error-codes
+        https://api.random.org/json-rpc/2/error-codes
         
         Raises a RuntimeError on JSON-RPC Errors, error descriptions:
-        https://api.random.org/json-rpc/1/error-codes
+        https://api.random.org/json-rpc/2/error-codes
         
         Can also raise connection errors as described here:
         http://docs.python-requests.org/en/v2.0-0/user/quickstart/#errors-and-exceptions
         """
-        if self._bits_left is None or \
-           time.clock() > self._last_response_received_time + _ALLOWANCE_STATE_REFRESH_SECONDS:
-            self._get_usage()
-        
+        try:
+            # Python 2.7
+            if self._bits_left is None or \
+            time.clock() > (self._last_response_received_time 
+                                   + _ALLOWANCE_STATE_REFRESH_SECONDS):
+                self._get_usage()
+        except AttributeError:
+            # Python 3.3+
+            if self._bits_left is None or \
+            time.process_time() > (self._last_response_received_time 
+                                   + _ALLOWANCE_STATE_REFRESH_SECONDS):
+                self._get_usage()            
         return self._bits_left
     
     
@@ -1421,11 +1933,13 @@ class RandomOrgClient(object):
         lock = threading.Condition()
         lock.acquire()
         
-        data = {'lock': lock, 'request': request, 'response': None, 'exception': None}
+        data = {'lock': lock, 'request': request, 'response': None, 
+                'exception': None}
         self._serialized_queue.put(data)
         
         # Wait on the Condition for the specified blocking timeout.
-        lock.wait(timeout=None if self._blocking_timeout == -1 else self._blocking_timeout)
+        lock.wait(timeout=None if self._blocking_timeout == -1 
+                  else self._blocking_timeout)
         
         # Lock has now either been notified or timed out.
         # Examine data to determine which and react accordingly.
@@ -1434,9 +1948,12 @@ class RandomOrgClient(object):
         if data['response'] is None and data['exception'] is None:
             data['request'] = None
             lock.release()
-            raise RandomOrgSendTimeoutError('The defined maximum allowed blocking time of ' + 
-                                            str(self._blocking_timeout) + 's has been exceeded \
-                                            while waiting for a synchronous request to send.')
+            raise RandomOrgSendTimeoutError('The defined maximum \
+                                            allowed blocking time of ' 
+                                            + str(self._blocking_timeout) 
+                                            + 's has been exceeded while \
+                                            waiting for a synchronous \
+                                            request to send.')
         
         # Exception on sending request.
         if data['exception'] is not None:
@@ -1477,7 +1994,8 @@ class RandomOrgClient(object):
         if self._backoff is not None:
             # Time not yet up, throw exception.
             if datetime.utcnow() < self._backoff:
-                return { 'exception': RandomOrgInsufficientRequestsError(self._backoff_error) }
+                return { 'exception': 
+                        RandomOrgInsufficientRequestsError(self._backoff_error) }
             
             # Time is up, clear backoff.
             else:
@@ -1486,20 +2004,30 @@ class RandomOrgClient(object):
         
         # Check server advisory delay.
         self._advisory_delay_lock.acquire()
-        wait = self._advisory_delay - (time.clock() - self._last_response_received_time)
+        try:
+            # Python 2.7
+            wait = self._advisory_delay - (time.clock() 
+                                           - self._last_response_received_time)
+        except AttributeError:
+            # Python 3.3+
+            wait = self._advisory_delay - (time.process_time() 
+                                           - self._last_response_received_time)
         self._advisory_delay_lock.release()
         
         # Wait the specified delay if necessary and if wait time is not
         # longer than the set blocking_timeout.
         if wait > 0:
             if (self._blocking_timeout != -1 and wait > self._blocking_timeout):
-                return { 'exception': RandomOrgSendTimeoutError('The server advisory delay of ' + 
-                                      str(wait) + 's is greater than the defined maximum allowed \
-                                      blocking time of ' + str(self._blocking_timeout) + 's.') }
+                return { 'exception': 
+                        RandomOrgSendTimeoutError('The server advisory delay of ' 
+                                                  + str(wait) + 's is greater than \
+                                                  the defined maximum allowed \
+                                                  blocking time of ' 
+                                                  + str(self._blocking_timeout) + 's.') }
             time.sleep(wait)
         
         # Send the request & parse the response.
-        response = requests.post('https://api.random.org/json-rpc/1/invoke',
+        response = requests.post('https://api.random.org/json-rpc/2/invoke',
                                  data=json.dumps(request), 
                                  headers={'content-type': 'application/json'},
                                  timeout=self._http_timeout)
@@ -1510,35 +2038,64 @@ class RandomOrgClient(object):
             message = data['error']['message']
             
             # RuntimeError, error codes listed under JSON-RPC Errors:
-            # https://api.random.org/json-rpc/1/error-codes
-            if code in [-32700] + range(-32603,-32600) + range(-32099,-32000):                
-                return { 'exception': RuntimeError('Error ' + str(code) + ': ' + message) }
+            # https://api.random.org/json-rpc/2/error-codes
+            if code in ([-32700] + list(range(-32603,-32600)) 
+                        + list(range(-32099,-32000))):                
+                return { 'exception': RuntimeError('Error ' + str(code) 
+                                                   + ': ' + message) }
+            
+            # RandomOrgKeyNonExistentError, API key does not exist, from 
+            # RANDOM.ORG Errors: https://api.random.org/json-rpc/2/error-codes
+            elif code == 400:
+                return { 'exception': 
+                        RandomOrgKeyNonExistentError('Error ' + str(code) 
+                                                    + ': ' + message) }
             
             # RandomOrgKeyNotRunningError, API key not running, from 
-            # RANDOM.ORG Errors: https://api.random.org/json-rpc/1/error-codes
+            # RANDOM.ORG Errors: https://api.random.org/json-rpc/2/error-codes
             elif code == 401:
-                return { 'exception': RandomOrgKeyNotRunningError('Error ' + 
-                                                                  str(code) + ': ' + message) }
+                return { 'exception': 
+                        RandomOrgKeyNotRunningError('Error ' + str(code) 
+                                                    + ': ' + message) }
                 
             # RandomOrgInsufficientRequestsError, requests allowance 
             # exceeded, backoff until midnight UTC, from RANDOM.ORG 
-            # Errors: https://api.random.org/json-rpc/1/error-codes
+            # Errors: https://api.random.org/json-rpc/2/error-codes
             elif code == 402:
                 self._backoff = datetime.utcnow().replace(day=datetime.utcnow().day+1, hour=0, 
                                                           minute=0, second=0, microsecond=0)
                 self._backoff_error = 'Error ' + str(code) + ': ' + message
-                return { 'exception': RandomOrgInsufficientRequestsError(self._backoff_error) }
+                return { 'exception': 
+                        RandomOrgInsufficientRequestsError(self._backoff_error) }
             
             # RandomOrgInsufficientBitsError, bits allowance exceeded,
-            # from RANDOM.ORG Errors: https://api.random.org/json-rpc/1/error-codes
+            # from RANDOM.ORG Errors: https://api.random.org/json-rpc/2/error-codes
             elif code == 403:
-                return { 'exception': RandomOrgInsufficientBitsError('Error ' + 
-                                                                     str(code) + ': ' + message) }
+                return { 'exception': 
+                        RandomOrgInsufficientBitsError('Error ' + str(code) 
+                                                       + ': ' + message) }
+            
+            # RandomOrgKeyInvalidAccessError, key is not valid for method 
+            # requested, from RANDOM.ORG Errors: 
+            # https://api.random.org/json-rpc/2/error-codes
+            elif code == 404:
+                return { 'exception':
+                        RandomOrgKeyInvalidAccessError('Error ' + str(code) 
+                                                       + ': ' + message) }
+            
+            # RandomOrgKeyInvalidVersionError, key is not valid for the 
+            # version of the API you are invoking, from RANDOM.ORG Errors: 
+            # https://api.random.org/json-rpc/2/error-codes
+            elif code == 405:
+                return { 'exception':
+                        RandomOrgKeyInvalidVersionError('Error' + str(code) 
+                                                        + ': ' + message)}
             
             # ValueError, error codes listed under RANDOM.ORG Errors:
-            # https://api.random.org/json-rpc/1/error-codes
+            # https://api.random.org/json-rpc/2/error-codes
             else:
-                return { 'exception': ValueError('Error ' + str(code) + ': ' + message) }
+                return { 'exception': ValueError('Error ' + str(code) 
+                                                 + ': ' + message) }
         
         # Update usage stats
         if 'requestsLeft' in data['result']:
@@ -1549,12 +2106,24 @@ class RandomOrgClient(object):
         self._advisory_delay_lock.acquire()
         if 'advisoryDelay' in data['result']:
             # Convert millis to decimal seconds.
-            self._advisory_delay = long(data['result']['advisoryDelay']) / 1000.0
+            if sys.version_info[0] < 3.0:
+                # Python 2.7
+                self._advisory_delay = (long(data['result']['advisoryDelay']) 
+                                        / 1000.0)
+            else:
+                # Python 3+
+                self._advisory_delay = (int(data['result']['advisoryDelay']) 
+                                        / 1000.0)
         else:
             # Use default if none from server.
             self._advisory_delay = _DEFAULT_DELAY
         
-        self._last_response_received_time = time.clock()
+        try:
+            # Python 2.7
+            self._last_response_received_time = time.clock()
+        except AttributeError: 
+            # Python 3.3+
+            self._last_response_received_time = time.process_time()
         
         self._advisory_delay_lock.release()
         
@@ -1568,7 +2137,8 @@ class RandomOrgClient(object):
     
     def _generate_request(self, method, params):
         # Base json request.
-        return { 'jsonrpc':'2.0', 'method':method, 'params':params, 'id':uuid.uuid4().hex }
+        return { 'jsonrpc':'2.0', 'method':method, 'params':params, 
+                'id':uuid.uuid4().hex }
     
     def _extract_response(self, response):
         # Gets random data.
@@ -1579,18 +2149,23 @@ class RandomOrgClient(object):
         return { 'data':extract_function(response), 
                  'random':response['result']['random'], 
                  'signature':response['result']['signature'] }
-    
+        
     def _extract_verification_response(self, response):
         # Gets verification boolean.
         return bool(response['result']['authenticity'])
     
     def _extract_ints(self, response):
         # json to integer list.
-        return map(int, self._extract_response(response))
+        return list(map(int, self._extract_response(response)))
+    
+    def _extract_int_sequences(self, response):
+        # json to integer sequences list.
+        return [list(map(int, rest)) for rest in 
+                self._extract_response(response)]
     
     def _extract_doubles(self, response):
         # json to double list.
-        return map(float, self._extract_response(response))
+        return list(map(float, self._extract_response(response)))
     
     def _extract_strings(self, response):
         # json to string list (no change).
@@ -1598,9 +2173,8 @@ class RandomOrgClient(object):
     
     def _extract_UUIDs(self, response):
         # json to UUID list.
-        return map(uuid.UUID, self._extract_response(response))
+        return list(map(uuid.UUID, self._extract_response(response)))
     
     def _extract_blobs(self, response):
         # json to blob list (no change).
         return self._extract_response(response)
-    

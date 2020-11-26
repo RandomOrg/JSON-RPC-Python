@@ -1,5 +1,5 @@
 """
-RANDOM.ORG JSON-RPC API (Release 1) implementation.
+RANDOM.ORG JSON-RPC API (Release 2) implementation.
 
 Usage:
 
@@ -44,7 +44,7 @@ are sent too frequently:
     [3, 5, 2, 4, 8]
 
 For a full list of available randomness generation functions see 
-rdoclient.py documentation and https://api.random.org/json-rpc/1/
+rdoclient.py documentation and https://api.random.org/json-rpc/2
 """
 
 __title__ = 'rdoclient'
@@ -54,9 +54,15 @@ __author__ = 'RANDOM.ORG'
 __license__ = 'MIT'
 __copyright__ = 'Copyright 2014 RANDOM.ORG'
 
-from .rdoclient import RandomOrgClient, RandomOrgCache, RandomOrgSendTimeoutError, RandomOrgKeyNotRunningError, RandomOrgInsufficientRequestsError, RandomOrgInsufficientBitsError
+from .rdoclient import (RandomOrgClient, RandomOrgCache, RandomOrgSendTimeoutError, 
+                        RandomOrgKeyNonExistentError, RandomOrgKeyNotRunningError, 
+                        RandomOrgInsufficientRequestsError, RandomOrgInsufficientBitsError, 
+                        RandomOrgKeyInvalidAccessError, RandomOrgKeyInvalidVersionError)
 
-__all__ = [ 'RandomOrgClient', 'RandomOrgCache', 'RandomOrgSendTimeoutError', 'RandomOrgKeyNotRunningError', 'RandomOrgInsufficientRequestsError', 'RandomOrgInsufficientBitsError' ]
+__all__ = [ 'RandomOrgClient', 'RandomOrgCache', 'RandomOrgSendTimeoutError', 
+           'RandomOrgKeyNonExistentError', 'RandomOrgKeyNotRunningError', 
+           'RandomOrgInsufficientRequestsError', 'RandomOrgInsufficientBitsError', 
+           'RandomOrgKeyInvalidAccessError', 'RandomOrgKeyInvalidVersionError' ]
 
 import logging
 

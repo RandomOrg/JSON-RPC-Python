@@ -1,5 +1,5 @@
 """
-RANDOM.ORG JSON-RPC API (Release 1) implementation tests.
+RANDOM.ORG JSON-RPC API (Release 2) implementation tests.
 
 Run with py.test test_rdoclient.py
 """
@@ -8,10 +8,16 @@ import time
 import uuid
 
 from datetime import datetime
-from Queue import Empty
+try:
+    # Python 2.7
+    from Queue import Empty
+except ImportError:
+    # Python 3+
+    from queue import Empty
 
 import unittest
 import pytest
+import six # Added for asserting string types (Python 2.7/3.x - unicode/string)
 
 from rdoclient import *
 
@@ -24,7 +30,8 @@ class TestRandomOrgSerialClient(unittest.TestCase):
     
     def setUp(self):
         """Create client."""
-        self._serial_client = RandomOrgClient(_API_KEY_2, blocking_timeout=30, serialized=True)
+        self._serial_client = RandomOrgClient(_API_KEY_1, blocking_timeout=30, 
+                                              serialized=True)
     
     def tearDown(self):
         """Kill all clients."""
@@ -33,7 +40,8 @@ class TestRandomOrgSerialClient(unittest.TestCase):
     
     
     def test_serial_timeout_error(self):
-        """Check RandomOrgSendTimeoutError raised when allowed wait time is exceeded for a serial client."""
+        """Check RandomOrgSendTimeoutError raised when allowed wait time is 
+        exceeded for a serial client."""
         
         self._serial_client._advisory_delay = 1000
         
@@ -46,7 +54,8 @@ class TestRandomOrgClient(unittest.TestCase):
     
     def setUp(self):
         """Create client."""
-        self._client = RandomOrgClient(_API_KEY_1, blocking_timeout=30, serialized=False)
+        self._client = RandomOrgClient(_API_KEY_1, blocking_timeout=30, 
+                                       serialized=False)
     
     def tearDown(self):
         """Kill all clients."""
@@ -60,7 +69,8 @@ class TestRandomOrgClient(unittest.TestCase):
     
     
     def test_api_key_duplication(self):
-        """Check new instance isn't created for same api key, and different api key creates different instance."""
+        """Check new instance isn't created for same api key, 
+        and different api key creates different instance."""
         
         duplicate = RandomOrgClient(_API_KEY_1, serialized=False)
         alternative = RandomOrgClient(_API_KEY_2, serialized=True)
@@ -69,7 +79,8 @@ class TestRandomOrgClient(unittest.TestCase):
         assert duplicate != alternative
     
     def test_runtime_error(self):
-        """Check RuntimeError raised for one of several possible error codes, in this case we use "method not found"."""
+        """Check RuntimeError raised for one of several possible error codes, 
+        in this case we use "method not found"."""
         
         params = { 'apiKey':_API_KEY_1, 'n':10, 'min':0, 'max':10, 'replacement':True }
         request = self._client._generate_request(_FAKE_METHOD, params)
@@ -78,17 +89,29 @@ class TestRandomOrgClient(unittest.TestCase):
             response = self._client._send_request(request)
     
     def test_value_error(self):
-        """Check ValueError raised for an incorectly parameterised request sent to server."""
+        """Check ValueError raised for an incorrectly parameterised request 
+        sent to server."""
         
         with pytest.raises(ValueError):
             response = self._client.generate_integers(10001, 0, 10)
     
+    def test_key_non_existent_error(self):
+        """Check RandomOrgKeyNonExistentError raised if key does not exist."""
+        
+        roc = RandomOrgClient("ffffffff-ffff-ffff-ffff-ffffffffffff")
+        
+        with pytest.raises(RandomOrgKeyNonExistentError):
+            response = roc.generate_integers(10, 0, 10)
+    
     def test_allowance_exceeded_error(self):
-        """Check RandomOrgInsufficientRequestsError raised if UTC backoff is in effect."""
+        """Check RandomOrgInsufficientRequestsError raised if UTC backoff 
+        is in effect."""
         
         code = 402
-        message = 'The API key has no requsts left today'
-        self._client._backoff = datetime.utcnow().replace(day=datetime.utcnow().day+1, hour=0, minute=0, second=0, microsecond=0)
+        message = 'The API key has no requests left today'
+        self._client._backoff = datetime.utcnow().replace(day=datetime.utcnow().day+1, 
+                                                          hour=0, minute=0, second=0, 
+                                                          microsecond=0)
         self._client._backoff_error = 'Error ' + str(code) + ': ' + message
         
         with pytest.raises(RandomOrgInsufficientRequestsError):
@@ -118,6 +141,20 @@ class TestRandomOrgClient(unittest.TestCase):
         for i in response:
             assert isinstance(i, int)
     
+    def test_generate_integer_sequences(self):
+        """Check generate integer sequences returns 
+        sequences of integers."""
+        
+        response = self._client.generate_integer_sequences(3, [2, 3, 1], 
+                                                           0, 10)
+        
+        assert isinstance(response, list)
+        
+        for i in response:
+            assert isinstance(i, list)
+            for j in i:
+                assert isinstance(j, int)
+    
     def test_generate_decimal_fractions(self):
         """Check generate decimal fractions returns a list of decimals."""
         
@@ -141,13 +178,15 @@ class TestRandomOrgClient(unittest.TestCase):
     def test_generate_strings(self):
         """Check generate strings returns a list of strings."""
         
-        response = self._client.generate_strings(10, 10, 'abcedfghijklmnopqrstuvwxyz')
+        response = self._client.generate_strings(10, 10, 
+                                                 'abcedfghijklmnopqrstuvwxyz')
         
         assert isinstance(response, list)
         
         for i in response:
-            print type(i)
-            assert isinstance(i, unicode)
+            # Python 2.7: unicode; Python 3+: string
+            #print(type(i))
+            assert isinstance(i, six.string_types)
     
     def test_generate_UUIDs(self):
         """Check generate UUIDs returns a list of UUIDs."""
@@ -167,11 +206,13 @@ class TestRandomOrgClient(unittest.TestCase):
         assert isinstance(response, list)
         
         for i in response:
-            assert isinstance(i, unicode)
+            # Python 2.7: unicode; Python 3+: string
+            assert isinstance(i, six.string_types)
     
     
     def test_generate_signed_integers(self):
-        """Check generate signed integers returns a list of integers and can be verified."""
+        """Check generate signed integers returns a list of 
+        integers and can be verified."""
         
         response = self._client.generate_signed_integers(10, 0, 10)
         
@@ -184,10 +225,34 @@ class TestRandomOrgClient(unittest.TestCase):
         for i in response['data']:
             assert isinstance(i, int)
         
-        assert self._client.verify_signature(response['random'], response['signature'])
+        assert self._client.verify_signature(response['random'], 
+                                             response['signature'])
+    
+    def test_generate_signed_integer_sequences(self):
+        """Check generate signed integer sequences returns 
+        sequences of integers and can be verified."""
+        
+        response = self._client.generate_signed_integer_sequences(3, 
+                                                                  [2, 3, 1], 
+                                                                  0, 10)
+        
+        assert isinstance(response, dict)
+        
+        assert response['data'] is not None
+        assert response['random'] is not None
+        assert response['signature'] is not None
+        
+        for i in response['data']:
+            assert isinstance(i, list)
+            for j in i:
+                assert isinstance(j, int)
+                
+        assert self._client.verify_signature(response['random'], 
+                                             response['signature'])
     
     def test_generate_signed_decimal_fractions(self):
-        """Check generate signed decimal fractions returns a list of decimals and can be verified."""
+        """Check generate signed decimal fractions returns a list of 
+        decimals and can be verified."""
         
         response = self._client.generate_signed_decimal_fractions(10, 10)
         
@@ -200,12 +265,15 @@ class TestRandomOrgClient(unittest.TestCase):
         for i in response['data']:
             assert isinstance(i, float)
         
-        assert self._client.verify_signature(response['random'], response['signature'])
+        assert self._client.verify_signature(response['random'], 
+                                             response['signature'])
     
     def test_generate_signed_gaussians(self):
-        """Check generate signed gaussians returns a list of decimals and can be verified."""
+        """Check generate signed gaussians returns a list of decimals 
+        and can be verified."""
         
-        response = self._client.generate_signed_gaussians(10, 10, 0.5, 5)
+        response = self._client.generate_signed_gaussians(10, 10, 
+                                                          0.5, 5)
         
         assert isinstance(response, dict)
         
@@ -216,12 +284,15 @@ class TestRandomOrgClient(unittest.TestCase):
         for i in response['data']:
             assert isinstance(i, float)
         
-        assert self._client.verify_signature(response['random'], response['signature'])
+        assert self._client.verify_signature(response['random'], 
+                                             response['signature'])
     
     def test_generate_signed_strings(self):
-        """Check generate signed strings returns a list of strings and can be verified."""
+        """Check generate signed strings returns a list of strings 
+        and can be verified."""
         
-        response = self._client.generate_signed_strings(10, 10, 'abcedfghijklmnopqrstuvwxyz')
+        response = self._client.generate_signed_strings(10, 10, 
+                                                        'abcedfghijklmnopqrstuvwxyz')
         
         assert isinstance(response, dict)
         
@@ -230,12 +301,15 @@ class TestRandomOrgClient(unittest.TestCase):
         assert response['signature'] is not None
         
         for i in response['data']:
-            assert isinstance(i, unicode)
+            # Python 2.7: unicode; Python 3+: string
+            assert isinstance(i, six.string_types)
         
-        assert self._client.verify_signature(response['random'], response['signature'])
+        assert self._client.verify_signature(response['random'], 
+                                             response['signature'])
     
     def test_generate_signed_UUIDs(self):
-        """Check generate signed UUIDs returns a list of UUIDs and can be verified."""
+        """Check generate signed UUIDs returns a list of UUIDs 
+        and can be verified."""
         
         response = self._client.generate_signed_UUIDs(10)
         
@@ -248,10 +322,12 @@ class TestRandomOrgClient(unittest.TestCase):
         for i in response['data']:
             assert isinstance(i, uuid.UUID)
         
-        assert self._client.verify_signature(response['random'], response['signature'])
+        assert self._client.verify_signature(response['random'], 
+                                             response['signature'])
     
     def test_generate_signed_blobs(self):
-        """Check generate signed blobs returns a list of blobs and can be verified."""
+        """Check generate signed blobs returns a list of blobs 
+        and can be verified."""
         
         response = self._client.generate_signed_blobs(10, 64)
         
@@ -262,9 +338,30 @@ class TestRandomOrgClient(unittest.TestCase):
         assert response['signature'] is not None
         
         for i in response['data']:
-            assert isinstance(i, unicode)
+            # Python 2.7: unicode; Python 3+: string
+            assert isinstance(i, six.string_types)
         
-        assert self._client.verify_signature(response['random'], response['signature'])
+        assert self._client.verify_signature(response['random'], 
+                                             response['signature'])
+    
+    def test_get_result(self):
+        """Check get result returns values identical to those 
+        originally generated and can be verified."""
+        
+        original = self._client.generate_signed_integers(5, 0, 10)
+        
+        assert original['random']['serialNumber'] is not None
+        
+        response = self._client.get_result(original['random']['serialNumber'])
+        
+        assert response['data'] is not None
+        assert response['random'] is not None
+        assert response['signature'] is not None
+        
+        assert original['data'] == response['data']
+        
+        assert self._client.verify_signature(response['random'], 
+                                             response['signature'])
     
     
     def test_cache(self):
@@ -274,7 +371,7 @@ class TestRandomOrgClient(unittest.TestCase):
         cache.stop()
         
         with pytest.raises(Empty):
-            print cache.get()
+            print(cache.get())
         
         cache.resume()
         
@@ -305,6 +402,28 @@ class TestRandomOrgClient(unittest.TestCase):
         
         for g in got:
             assert isinstance(g, int)
+    
+    def test_create_integer_sequences_cache(self):
+        """Check integer sequences cache returns sequences of 
+        ints on poll."""
+        
+        cache = self._client.create_integer_sequences_cache(1, 3, 0, 10, 
+                                                            cache_size=2)
+        
+        got = None
+        
+        while got is None:
+            try:
+                got = cache.get()
+            except Empty:
+                time.sleep(5)
+        
+        assert isinstance(got, list)
+        
+        for g in got:
+            assert isinstance(g, list)
+            for i in g:
+                assert isinstance(i, int)
     
     def test_create_decimal_fraction_cache(self):
         """Check decimal fraction cache returns a list of decimals on poll."""
@@ -345,7 +464,8 @@ class TestRandomOrgClient(unittest.TestCase):
     def test_create_string_cache(self):
         """Check string cache returns a list of unicode strings on poll."""
         
-        cache = self._client.create_string_cache(10, 10, 'abcedfghijklmnopqrstuvwxyz', cache_size=2)
+        cache = self._client.create_string_cache(10, 10, 'abcedfghijklmnopqrstuvwxyz', 
+                                                 cache_size=2)
         
         got = None
         
@@ -358,7 +478,8 @@ class TestRandomOrgClient(unittest.TestCase):
         assert isinstance(got, list)
         
         for g in got:
-            assert isinstance(g, unicode)
+            # Python 2.7: unicode; Python 3+: string
+            assert isinstance(g, six.string_types)
     
     def test_create_UUID_cache(self):
         """Check UUID cache returns a list of UUIDs on poll."""
@@ -394,11 +515,10 @@ class TestRandomOrgClient(unittest.TestCase):
         assert isinstance(got, list)
         
         for g in got:
-            assert isinstance(g, unicode)
-    
+            # Python 2.7: unicode; Python 3+: string
+            assert isinstance(g, six.string_types)
     
     def test_cached_info(self):
         assert isinstance(self._client.get_requests_left(), int)
         assert isinstance(self._client.get_bits_left(), int)
     
-

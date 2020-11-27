@@ -1,5 +1,5 @@
 """
-RANDOM.ORG JSON-RPC API (Release 2) implementation tests.
+RANDOM.ORG JSON-RPC API (Release 3) implementation tests.
 
 Run with py.test test_rdoclient.py
 """
@@ -130,6 +130,34 @@ class TestRandomOrgClient(unittest.TestCase):
             
         self._client._advisory_delay = 1.0
     
+    def test_ticket_non_existent_error(self):
+        """Check RandomOrgTicketNonExistentError raised when a 
+        ticket does not exist."""
+        
+        with pytest.raises(RandomOrgTicketNonExistentError):
+            response = self._client.generate_signed_integers(10, 0, 10, 
+                                                             ticket_id="ffffffffffffffff")
+    
+    def test_ticket_key_mismatch_error(self):
+        """Check RandomOrgTicketAPIKeyMismatchError raised when the ticket 
+        is not for the API key."""
+        
+        with pytest.raises(RandomOrgTicketAPIKeyMismatchError):
+            response = self._client.generate_signed_integers(10, 0, 10, 
+                                                             ticket_id="d5b8f6d03f99a134")
+    
+    def test_ticket_already_used_error(self):
+        """Check RandomOrgTicketAlreadyUsedError raised when ticket has 
+        already been used."""
+        
+        ticket = self._client.create_tickets(1, True)
+        ticket_id = ticket[0]['ticketId']
+        response = self._client.generate_signed_integers(10, 0, 10, 
+                                                         ticket_id=ticket_id)
+        
+        with pytest.raises(RandomOrgTicketAlreadyUsedError):
+            response = self._client.generate_signed_integers(10, 0, 10, 
+                                                             ticket_id=ticket_id)
     
     def test_generate_integers(self):
         """Check generate integers returns a list of integers."""
@@ -363,6 +391,67 @@ class TestRandomOrgClient(unittest.TestCase):
         assert self._client.verify_signature(response['random'], 
                                              response['signature'])
     
+    def test_create_tickets(self):
+        """Check create tickets returns a list of tickets."""
+        response = self._client.create_tickets(2, False)
+        
+        assert response is not None
+        
+        for i in response:
+            assert i['ticketId'] is not None
+    
+    def test_list_tickets(self):
+        """Check list tickets returns a list of tickets of the correct type."""
+        response = self._client.list_tickets("singleton")
+        
+        if response is not None:       
+            for i in response:
+                assert i['ticketId'] is not None
+                assert i['nextTicketId'] is None
+                assert i['previousTicketId'] is None
+                
+        response = self._client.list_tickets("head")
+        
+        if response is not None:
+            for i in response:
+                assert i['ticketId'] is not None
+                assert i['nextTicketId'] is not None
+                assert i['previousTicketId'] is None
+        
+        response = self._client.list_tickets("tail")
+        
+        if response is not None:
+            for i in response:
+                assert i['ticketId'] is not None
+                assert i['nextTicketId'] is None
+                assert i['previousTicketId'] is not None
+    
+    def test_get_ticket(self):
+        """Check get ticket returns a ticket and that (when used) the
+        results can be verified."""
+        ticket = self._client.create_tickets(1, True)
+
+        assert ticket[0] is not None
+        assert ticket[0]['ticketId'] is not None
+        
+        ticket_id = ticket[0]['ticketId']
+        response = self._client.get_ticket(ticket_id)
+        assert response['ticketId'] == ticket_id
+        assert response['showResult']
+        assert response['usedTime'] is None
+        
+        random_integers = self._client.generate_signed_integers(5, 0, 10, 
+                                                                ticket_id=ticket_id)        
+        assert self._client.verify_signature(random_integers['random'], 
+                                             random_integers['signature'])
+        
+        response = self._client.get_ticket(ticket_id)
+        
+        assert response['ticketId'] == ticket_id
+        assert response['showResult']
+        assert response['usedTime'] is not None
+        assert self._client.verify_signature(response['result']['random'], 
+                                             response['result']['signature'])
     
     def test_cache(self):
         """Test empty cache and stop/resume functionality."""

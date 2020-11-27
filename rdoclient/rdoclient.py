@@ -1,7 +1,7 @@
 """
-RANDOM.ORG JSON-RPC API (Release 2) implementation.
+RANDOM.ORG JSON-RPC API (Release 3) implementation.
 
-This is a Python implementation of the RANDOM.ORG JSON-RPC API (R2).
+This is a Python implementation of the RANDOM.ORG JSON-RPC API (R3).
 It provides either serialized or unserialized access to both the signed 
 and unsigned methods of the API through the RandomOrgClient class. It 
 also provides a convenience class through the RandomOrgClient class, 
@@ -23,10 +23,21 @@ RandomOrgInsufficientRequestsError -- requests allowance exceeded.
 
 RandomOrgInsufficientBitsError -- bits allowance exceeded.
 
-RandomOrgKeyInvalidAccessError -- key is not valid for the requested method 
+RandomOrgKeyInvalidAccessError -- key is not valid for the requested 
+                                  method 
 
-RandomOrgKeyInvalidVersionError -- key is not valid for the version of the API
+RandomOrgKeyInvalidVersionError -- key is not valid for the version 
+                                   of the API
 
+RandomOrgTicketNonExistentError -- ticket does not exist.
+
+RandomOrgTicketAPIKeyMismatchError -- ticket cannot be used with 
+                                      key specified.
+
+RandomOrgTicketAlreadyUsedError -- ticket has already been used.
+
+RandomOrgTooManySingletonTicketsError -- singleton ticket allowance 
+                                         exceeded.
 """
 
 from collections import OrderedDict
@@ -47,7 +58,7 @@ except ImportError:
 
 import requests
 
-# Basic RANDOM.ORG API functions https://api.random.org/json-rpc/2/basic
+# Basic RANDOM.ORG API functions https://api.random.org/json-rpc/3/basic
 _INTEGER_METHOD                  = 'generateIntegers'
 _INTEGER_SEQUENCES_METHOD        = 'generateIntegerSequences'
 _DECIMAL_FRACTION_METHOD         = 'generateDecimalFractions'
@@ -57,7 +68,7 @@ _UUID_METHOD                     = 'generateUUIDs'
 _BLOB_METHOD                     = 'generateBlobs'
 _GET_USAGE_METHOD                = 'getUsage'
 
-# Signed RANDOM.ORG API functions https://api.random.org/json-rpc/2/signed
+# Signed RANDOM.ORG API functions https://api.random.org/json-rpc/3/signed
 _SIGNED_INTEGER_METHOD           = 'generateSignedIntegers'
 _SIGNED_INTEGER_SEQUENCES_METHOD = 'generateSignedIntegerSequences'
 _SIGNED_DECIMAL_FRACTION_METHOD  = 'generateSignedDecimalFractions'
@@ -66,6 +77,9 @@ _SIGNED_STRING_METHOD            = 'generateSignedStrings'
 _SIGNED_UUID_METHOD              = 'generateSignedUUIDs'
 _SIGNED_BLOB_METHOD              = 'generateSignedBlobs'
 _GET_RESULT_METHOD               = 'getResult'
+_CREATE_TICKETS_METHOD           = 'createTickets'
+_LIST_TICKETS_METHOD             = 'listTickets'
+_GET_TICKET_METHOD               = 'getTicket'
 _VERIFY_SIGNATURE_METHOD         = 'verifySignature'
 
 # Blob format literals
@@ -141,6 +155,42 @@ class RandomOrgKeyInvalidVersionError(Exception):
     Exception raised by the RandomOrgClient class when its API key 
     is not valid for the version of the API invoked. Requests will not 
     complete. 
+    """
+
+class RandomOrgTicketNonExistentError(Exception):
+    """
+    RandomOrgClient ticket does not exist.
+    
+    Exception raised by the RandomOrgClient class when the ticket 
+    specified does not exist. 
+    """
+
+class RandomOrgTicketAPIKeyMismatchError(Exception):
+    """
+    RandomOrgClient ticket exists but is not for the API key specified.
+    
+    Exception raised by the RandomOrgClient class when the ticket 
+    specified exists but does not belong to the API key currently in 
+    use. 
+    """
+
+class RandomOrgTicketAlreadyUsedError(Exception):
+    """
+    RandomOrgClient ticket has already been used.
+    
+    Exception raised by the RandomOrgClient class when the ticket 
+    specified has already been used, i.e. it cannot be used for 
+    another request. 
+    """
+
+class RandomOrgTooManySingletonTicketsError(Exception):
+    """
+    RandomOrgClient key has reached the maximum number 
+    of singleton tickets allowed. 
+    
+    Exception raised by the RandomOrgClient class when the maximum 
+    number of singleton tickets associated with the API key specified 
+    has been reached. 
     """
 
 class RandomOrgCache(object):
@@ -337,7 +387,7 @@ class RandomOrgClient(object):
     that instance will be returned on init instead of a new instance.
     
     This class obeys most of the guidelines set forth in 
-    https://api.random.org/guidelines
+    https://api.random.org/json-rpc/3
     All requests respect the server's advisoryDelay returned in any 
     responses, or use _DEFAULT_DELAY if no advisoryDelay is returned. If
     the supplied API key is has exceeded its daily request allowance, 
@@ -346,7 +396,7 @@ class RandomOrgClient(object):
     Public methods:
     
     Basic methods for generating randomness, see:
-        https://api.random.org/json-rpc/2/basic
+        https://api.random.org/json-rpc/3/basic
     
     generate_integers -- get a list of random integers.
     generate_integer_sequences -- get sequences of random integers.
@@ -357,7 +407,7 @@ class RandomOrgClient(object):
     generate_blobs -- get a list of random blobs.
     
     Signed methods for generating randomness, see:
-        https://api.random.org/json-rpc/2/signed
+        https://api.random.org/json-rpc/3/signed
     
     generate_signed_integers -- get a signed response containing a list
         of random integers and a signature.
@@ -375,13 +425,22 @@ class RandomOrgClient(object):
         random blobs and a signature.
         
     Retrieving previously generated signed results (within 24h), see:
-        https://api.random.org/json-rpc/2/signed#getResult
+        https://api.random.org/json-rpc/3/signed#getResult
     
     get_result -- retrieve previously generated signed results using
        a serial number (restricted to within 24 hours after generation)
     
+    Tickets for use in methods which generate signed random values, see:
+       https://api.random.org/json-rpc/3/signed
+    
+    create_tickets -- create tickets for use in methods that generate
+       random values with signatures
+    list_tickets -- obtain a list of tickets of a certain type (singleton,
+      head or tail)
+    get_ticket -- obtain information on a single ticket
+    
     Signature verification for signed methods, see:
-        https://api.random.org/json-rpc/2/signed
+        https://api.random.org/json-rpc/3/signed
     
     verify_signature -- verify a response against its signature.
     
@@ -500,7 +559,7 @@ class RandomOrgClient(object):
     
     
     # Basic methods for generating randomness, see:
-    # https://api.random.org/json-rpc/2/basic
+    # https://api.random.org/json-rpc/3/basic
     
     def generate_integers(self, n, min, max, replacement=True, base=10):
         """
@@ -508,7 +567,7 @@ class RandomOrgClient(object):
         
         Request and return a list (size n) of true random integers 
         within a user-defined range from the server. See:
-        https://api.random.org/json-rpc/2/basic#generateIntegers
+        https://api.random.org/json-rpc/3/basic#generateIntegers
         
         Raises a RandomOrgSendTimeoutError if time spent waiting before
         request is sent exceeds this instance's blocking_timeout.
@@ -532,10 +591,10 @@ class RandomOrgClient(object):
         valid for the version of the API invoked.
         
         Raises a ValueError on RANDOM.ORG Errors, error descriptions:
-        https://api.random.org/json-rpc/2/error-codes
+        https://api.random.org/json-rpc/3/error-codes
         
         Raises a RuntimeError on JSON-RPC Errors, error descriptions:
-        https://api.random.org/json-rpc/2/error-codes
+        https://api.random.org/json-rpc/3/error-codes
         
         Can also raise connection errors as described here:
         http://docs.python-requests.org/en/v2.0-0/user/quickstart/#errors-and-exceptions
@@ -570,7 +629,7 @@ class RandomOrgClient(object):
         Request and return a list (size n) of uniform or multiform 
         sequences of true random integers 
         within a user-defined range from the server. See:
-        https://api.random.org/json-rpc/2/basic#generateIntegerSequences
+        https://api.random.org/json-rpc/3/basic#generateIntegerSequences
         
         Raises a RandomOrgSendTimeoutError if time spent waiting before
         request is sent exceeds this instance's blocking_timeout.
@@ -594,10 +653,10 @@ class RandomOrgClient(object):
         valid for the version of the API invoked.
         
         Raises a ValueError on RANDOM.ORG Errors, error descriptions:
-        https://api.random.org/json-rpc/2/error-codes
+        https://api.random.org/json-rpc/3/error-codes
         
         Raises a RuntimeError on JSON-RPC Errors, error descriptions:
-        https://api.random.org/json-rpc/2/error-codes
+        https://api.random.org/json-rpc/3/error-codes
         
         Can also raise connection errors as described here:
         http://docs.python-requests.org/en/v2.0-0/user/quickstart/#errors-and-exceptions
@@ -627,7 +686,7 @@ class RandomOrgClient(object):
             taken from the same set.  
         """
         params = { 'apiKey':self._api_key, 'n':n, 'length':length, 'min':min, 
-                  'max':max, 'replacement':replacement, 'base':base}
+                  'max':max, 'replacement':replacement, 'base':base }
         request = self._generate_request(_INTEGER_SEQUENCES_METHOD, params)
         response = self._send_request(request)
         return self._extract_int_sequences(response)
@@ -640,7 +699,7 @@ class RandomOrgClient(object):
         fractions, from a uniform distribution across the [0,1] 
         interval with a user-defined number of decimal places from the
         server. See:
-        https://api.random.org/json-rpc/2/basic#generateDecimalFractions
+        https://api.random.org/json-rpc/3/basic#generateDecimalFractions
         
         Raises a RandomOrgSendTimeoutError if time spent waiting before
         request is sent exceeds this instance's blocking_timeout.
@@ -664,10 +723,10 @@ class RandomOrgClient(object):
         valid for the version of the API invoked.
         
         Raises a ValueError on RANDOM.ORG Errors, error descriptions:
-        https://api.random.org/json-rpc/2/error-codes
+        https://api.random.org/json-rpc/3/error-codes
         
         Raises a RuntimeError on JSON-RPC Errors, error descriptions:
-        https://api.random.org/json-rpc/2/error-codes
+        https://api.random.org/json-rpc/3/error-codes
         
         Can also raise connection errors as described here:
         http://docs.python-requests.org/en/v2.0-0/user/quickstart/#errors-and-exceptions
@@ -698,7 +757,7 @@ class RandomOrgClient(object):
         a Gaussian distribution (also known as a normal distribution). 
         The form uses a Box-Muller Transform to generate the Gaussian 
         distribution from uniformly distributed numbers. See:
-        https://api.random.org/json-rpc/2/basic#generateGaussians
+        https://api.random.org/json-rpc/3/basic#generateGaussians
         
         Raises a RandomOrgSendTimeoutError if time spent waiting before
         request is sent exceeds this instance's blocking_timeout.
@@ -722,10 +781,10 @@ class RandomOrgClient(object):
         valid for the version of the API invoked.
         
         Raises a ValueError on RANDOM.ORG Errors, error descriptions:
-        https://api.random.org/json-rpc/2/error-codes
+        https://api.random.org/json-rpc/3/error-codes
         
         Raises a RuntimeError on JSON-RPC Errors, error descriptions:
-        https://api.random.org/json-rpc/2/error-codes
+        https://api.random.org/json-rpc/3/error-codes
         
         Can also raise connection errors as described here:
         http://docs.python-requests.org/en/v2.0-0/user/quickstart/#errors-and-exceptions
@@ -755,7 +814,7 @@ class RandomOrgClient(object):
         
         Request and return a list (size n) of true random unicode 
         strings from the server. See:
-        https://api.random.org/json-rpc/2/basic#generateStrings
+        https://api.random.org/json-rpc/3/basic#generateStrings
         
         Raises a RandomOrgSendTimeoutError if time spent waiting before
         request is sent exceeds this instance's blocking_timeout.
@@ -779,10 +838,10 @@ class RandomOrgClient(object):
         valid for the version of the API invoked.
         
         Raises a ValueError on RANDOM.ORG Errors, error descriptions:
-        https://api.random.org/json-rpc/2/error-codes
+        https://api.random.org/json-rpc/3/error-codes
         
         Raises a RuntimeError on JSON-RPC Errors, error descriptions:
-        https://api.random.org/json-rpc/2/error-codes
+        https://api.random.org/json-rpc/3/error-codes
         
         Can also raise connection errors as described here:
         http://docs.python-requests.org/en/v2.0-0/user/quickstart/#errors-and-exceptions
@@ -815,7 +874,7 @@ class RandomOrgClient(object):
         Request and return a list (size n) of version 4 true random 
         Universally Unique IDentifiers (UUIDs) in accordance with 
         section 4.4 of RFC 4122, from the server. See:
-        https://api.random.org/json-rpc/2/basic#generateUUIDs
+        https://api.random.org/json-rpc/3/basic#generateUUIDs
         
         Raises a RandomOrgSendTimeoutError if time spent waiting before
         request is sent exceeds this instance's blocking_timeout.
@@ -839,10 +898,10 @@ class RandomOrgClient(object):
         valid for the version of the API invoked.
         
         Raises a ValueError on RANDOM.ORG Errors, error descriptions:
-        https://api.random.org/json-rpc/2/error-codes
+        https://api.random.org/json-rpc/3/error-codes
         
         Raises a RuntimeError on JSON-RPC Errors, error descriptions:
-        https://api.random.org/json-rpc/2/error-codes
+        https://api.random.org/json-rpc/3/error-codes
         
         Can also raise connection errors as described here:
         http://docs.python-requests.org/en/v2.0-0/user/quickstart/#errors-and-exceptions
@@ -865,7 +924,7 @@ class RandomOrgClient(object):
         Request and return a list (size n) of Binary Large OBjects 
         (BLOBs) as unicode strings containing true random data from the
         server. See:
-        https://api.random.org/json-rpc/2/basic#generateBlobs
+        https://api.random.org/json-rpc/3/basic#generateBlobs
         
         Raises a RandomOrgSendTimeoutError if time spent waiting before
         request is sent exceeds this instance's blocking_timeout.
@@ -889,10 +948,10 @@ class RandomOrgClient(object):
         valid for the version of the API invoked.
         
         Raises a ValueError on RANDOM.ORG Errors, error descriptions:
-        https://api.random.org/json-rpc/2/error-codes
+        https://api.random.org/json-rpc/3/error-codes
         
         Raises a RuntimeError on JSON-RPC Errors, error descriptions:
-        https://api.random.org/json-rpc/2/error-codes
+        https://api.random.org/json-rpc/3/error-codes
         
         Can also raise connection errors as described here:
         http://docs.python-requests.org/en/v2.0-0/user/quickstart/#errors-and-exceptions
@@ -915,10 +974,10 @@ class RandomOrgClient(object):
     
     
     # Signed methods for generating randomness, see:
-    # https://api.random.org/json-rpc/2/signed
+    # https://api.random.org/json-rpc/3/signed
     
     def generate_signed_integers(self, n, min, max, replacement=True, 
-                                 base=10, user_data=None):
+                                 base=10, user_data=None, ticket_id=None):
         """
         Generate digitally signed random integers.
         
@@ -927,7 +986,7 @@ class RandomOrgClient(object):
         with the parsed integer list mapped to 'data', the original 
         response mapped to 'random', and the response's signature 
         mapped to 'signature'. See:
-        https://api.random.org/json-rpc/2/signed#generateSignedIntegers
+        https://api.random.org/json-rpc/3/signed#generateSignedIntegers
         
         Raises a RandomOrgSendTimeoutError if time spent waiting before
         request is sent exceeds this instance's blocking_timeout.
@@ -950,11 +1009,23 @@ class RandomOrgClient(object):
         Raises a RandomOrgKeyInvalidVersionError if this API key is not 
         valid for the version of the API invoked.
         
+        Raises a RandomOrgTicketNonExistentError if the ticket used 
+        does not exist.
+
+        Raises a RandomOrgTicketAPIKeyMismatchError if the ticket used 
+        exists but is not associated with the API key specified.
+
+        Raises a RandomOrgTicketAlreadyUsedError if a ticket has already 
+        been used.
+        
+        Raises a RandomOrgTooManySingletonTicketsError when the maximum 
+        number of singleton tickets for this API key has been reached.
+        
         Raises a ValueError on RANDOM.ORG Errors, error descriptions:
-        https://api.random.org/json-rpc/2/error-codes
+        https://api.random.org/json-rpc/3/error-codes
         
         Raises a RuntimeError on JSON-RPC Errors, error descriptions:
-        https://api.random.org/json-rpc/2/error-codes
+        https://api.random.org/json-rpc/3/error-codes
         
         Can also raise connection errors as described here:
         http://docs.python-requests.org/en/v2.0-0/user/quickstart/#errors-and-exceptions
@@ -977,17 +1048,22 @@ class RandomOrgClient(object):
             in unmodified form in the signed response along with the 
             random data. If an object is present, its maximum size in 
             encoded (string) form is 1,000 characters.
+        ticket_id -- A string with ticket identifier obtained via the 
+            create_tickets method. Specifying a value for ticket_id will 
+            cause RANDOM.ORG to record that the ticket was used to generate 
+            the requested random values. Each ticket can only be used once.
         """
         
         params = { 'apiKey':self._api_key, 'n':n, 'min':min, 'max':max, 
-                  'replacement':replacement, 'base':base, 'userData':user_data }
+                  'replacement':replacement, 'base':base, 'userData':user_data, 
+                  'ticketId':ticket_id }
         request = self._generate_request(_SIGNED_INTEGER_METHOD, params)
         response = self._send_request(request)
         return self._extract_signed_response(response, self._extract_ints)
     
-    def generate_signed_integer_sequences(self, n, length, min, max,
-                                          replacement=True, base=10,
-                                          user_data=None):
+    def generate_signed_integer_sequences(self, n, length, min, max, 
+                                          replacement=True, base=10, 
+                                          user_data=None, ticket_id=None):
         """
         Generate digitally signed sequences of random integers.
         
@@ -996,7 +1072,7 @@ class RandomOrgClient(object):
         with the parsed integer list mapped to 'data', the original 
         response mapped to 'random', and the response's signature 
         mapped to 'signature'. See:
-        https://api.random.org/json-rpc/2/signed#generateSignedIntegerSequences
+        https://api.random.org/json-rpc/3/signed#generateSignedIntegerSequences
         
         Raises a RandomOrgSendTimeoutError if time spent waiting before
         request is sent exceeds this instance's blocking_timeout.
@@ -1019,11 +1095,23 @@ class RandomOrgClient(object):
         Raises a RandomOrgKeyInvalidVersionError if this API key is not 
         valid for the version of the API invoked.
         
+        Raises a RandomOrgTicketNonExistentError if the ticket used 
+        does not exist.
+
+        Raises a RandomOrgTicketAPIKeyMismatchError if the ticket used 
+        exists but is not associated with the API key specified.
+
+        Raises a RandomOrgTicketAlreadyUsedError if a ticket has already 
+        been used.
+        
+        Raises a RandomOrgTooManySingletonTicketsError when the maximum 
+        number of singleton tickets for this API key has been reached.
+        
         Raises a ValueError on RANDOM.ORG Errors, error descriptions:
-        https://api.random.org/json-rpc/2/error-codes
+        https://api.random.org/json-rpc/3/error-codes
         
         Raises a RuntimeError on JSON-RPC Errors, error descriptions:
-        https://api.random.org/json-rpc/2/error-codes
+        https://api.random.org/json-rpc/3/error-codes
         
         Can also raise connection errors as described here:
         http://docs.python-requests.org/en/v2.0-0/user/quickstart/#errors-and-exceptions
@@ -1055,17 +1143,22 @@ class RandomOrgClient(object):
             in unmodified form in the signed response along with the 
             random data. If an object is present, its maximum size in 
             encoded (string) form is 1,000 characters.
+        ticket_id -- A string with ticket identifier obtained via the 
+            create_tickets method. Specifying a value for ticket_id will 
+            cause RANDOM.ORG to record that the ticket was used to generate 
+            the requested random values. Each ticket can only be used once.
         """
         
         params = { 'apiKey':self._api_key, 'n':n, 'length':length, 'min':min,
                   'max':max, 'replacement':replacement, 'base':base, 
-                  'userData':user_data}
+                  'userData':user_data, 'ticketId':ticket_id }
         request = self._generate_request(_SIGNED_INTEGER_SEQUENCES_METHOD, params)
         response = self._send_request(request)
         return self._extract_signed_response(response, self._extract_int_sequences)
     
-    def generate_signed_decimal_fractions(self, n, decimal_places,
-                                          replacement=True, user_data=None):
+    def generate_signed_decimal_fractions(self, n, decimal_places, 
+                                          replacement=True, user_data=None, 
+                                          ticket_id=None):
         """
         Generate digitally signed random decimal fractions.
         
@@ -1075,7 +1168,7 @@ class RandomOrgClient(object):
         a dictionary object with the parsed decimal fraction list 
         mapped to 'data', the original response mapped to 'random', and
         the response's signature mapped to 'signature'. See:
-        https://api.random.org/json-rpc/2/signed#generateSignedDecimalFractions
+        https://api.random.org/json-rpc/3/signed#generateSignedDecimalFractions
         
         Raises a RandomOrgSendTimeoutError if time spent waiting before
         request is sent exceeds this instance's blocking_timeout.
@@ -1098,11 +1191,23 @@ class RandomOrgClient(object):
         Raises a RandomOrgKeyInvalidVersionError if this API key is not 
         valid for the version of the API invoked.
         
+        Raises a RandomOrgTicketNonExistentError if the ticket used 
+        does not exist.
+
+        Raises a RandomOrgTicketAPIKeyMismatchError if the ticket used 
+        exists but is not associated with the API key specified.
+
+        Raises a RandomOrgTicketAlreadyUsedError if a ticket has already 
+        been used.
+        
+        Raises a RandomOrgTooManySingletonTicketsError when the maximum 
+        number of singleton tickets for this API key has been reached.
+        
         Raises a ValueError on RANDOM.ORG Errors, error descriptions:
-        https://api.random.org/json-rpc/2/error-codes
+        https://api.random.org/json-rpc/3/error-codes
         
         Raises a RuntimeError on JSON-RPC Errors, error descriptions:
-        https://api.random.org/json-rpc/2/error-codes
+        https://api.random.org/json-rpc/3/error-codes
         
         Can also raise connection errors as described here:
         http://docs.python-requests.org/en/v2.0-0/user/quickstart/#errors-and-exceptions
@@ -1121,17 +1226,22 @@ class RandomOrgClient(object):
             in unmodified form in the signed response along with the 
             random data. If an object is present, its maximum size in 
             encoded (string) form is 1,000 characters.
+        ticket_id -- A string with ticket identifier obtained via the 
+            create_tickets method. Specifying a value for ticket_id will 
+            cause RANDOM.ORG to record that the ticket was used to generate 
+            the requested random values. Each ticket can only be used once.
         """
         
         params = { 'apiKey':self._api_key, 'n':n, 
                    'decimalPlaces':decimal_places, 'replacement':replacement,
-                   'userData':user_data }
+                   'userData':user_data, 'ticketId':ticket_id }
         request = self._generate_request(_SIGNED_DECIMAL_FRACTION_METHOD, params)
         response = self._send_request(request)
         return self._extract_signed_response(response, self._extract_doubles)
     
     def generate_signed_gaussians(self, n, mean, standard_deviation, 
-                                  significant_digits, user_data=None):
+                                  significant_digits, user_data=None, 
+                                  ticket_id=None):
         """
         Generate digitally signed random numbers.
         
@@ -1142,7 +1252,7 @@ class RandomOrgClient(object):
         dictionary object with the parsed random number list mapped to
         'data', the original response mapped to 'random', and the 
         response's signature mapped to 'signature'. See:
-        https://api.random.org/json-rpc/2/signed#generateSignedGaussians
+        https://api.random.org/json-rpc/3/signed#generateSignedGaussians
         
         Raises a RandomOrgSendTimeoutError if time spent waiting before
         request is sent exceeds this instance's blocking_timeout.
@@ -1165,11 +1275,23 @@ class RandomOrgClient(object):
         Raises a RandomOrgKeyInvalidVersionError if this API key is not 
         valid for the version of the API invoked.
         
+        Raises a RandomOrgTicketNonExistentError if the ticket used 
+        does not exist.
+
+        Raises a RandomOrgTicketAPIKeyMismatchError if the ticket used 
+        exists but is not associated with the API key specified.
+
+        Raises a RandomOrgTicketAlreadyUsedError if a ticket has already 
+        been used.
+        
+        Raises a RandomOrgTooManySingletonTicketsError when the maximum 
+        number of singleton tickets for this API key has been reached.
+        
         Raises a ValueError on RANDOM.ORG Errors, error descriptions:
-        https://api.random.org/json-rpc/2/error-codes
+        https://api.random.org/json-rpc/3/error-codes
         
         Raises a RuntimeError on JSON-RPC Errors, error descriptions:
-        https://api.random.org/json-rpc/2/error-codes
+        https://api.random.org/json-rpc/3/error-codes
         
         Can also raise connection errors as described here:
         http://docs.python-requests.org/en/v2.0-0/user/quickstart/#errors-and-exceptions
@@ -1188,18 +1310,23 @@ class RandomOrgClient(object):
             in unmodified form in the signed response along with the 
             random data. If an object is present, its maximum size in 
             encoded (string) form is 1,000 characters.
+        ticket_id -- A string with ticket identifier obtained via the 
+            create_tickets method. Specifying a value for ticket_id will 
+            cause RANDOM.ORG to record that the ticket was used to generate 
+            the requested random values. Each ticket can only be used once.
         """
         
         params = { 'apiKey':self._api_key, 'n':n, 'mean':mean,
                    'standardDeviation':standard_deviation, 
                    'significantDigits':significant_digits,
-                   'userData':user_data }
+                   'userData':user_data, 'ticketId':ticket_id }
         request = self._generate_request(_SIGNED_GAUSSIAN_METHOD, params)
         response = self._send_request(request)
         return self._extract_signed_response(response, self._extract_doubles)
     
     def generate_signed_strings(self, n, length, characters, 
-                                replacement=True, user_data=None):
+                                replacement=True, user_data=None, 
+                                ticket_id=None):
         """
         Generate digitally signed random strings.
         
@@ -1207,7 +1334,7 @@ class RandomOrgClient(object):
         Returns a dictionary object with the parsed random string list 
         mapped to 'data', the original response mapped to 'random', and
         the response's signature mapped to 'signature'. See:
-        https://api.random.org/json-rpc/2/signed#generateSignedStrings
+        https://api.random.org/json-rpc/3/signed#generateSignedStrings
         
         Raises a RandomOrgSendTimeoutError if time spent waiting before
         request is sent exceeds this instance's blocking_timeout.
@@ -1230,11 +1357,23 @@ class RandomOrgClient(object):
         Raises a RandomOrgKeyInvalidVersionError if this API key is not 
         valid for the version of the API invoked.
         
+        Raises a RandomOrgTicketNonExistentError if the ticket used 
+        does not exist.
+
+        Raises a RandomOrgTicketAPIKeyMismatchError if the ticket used 
+        exists but is not associated with the API key specified.
+
+        Raises a RandomOrgTicketAlreadyUsedError if a ticket has already 
+        been used.
+        
+        Raises a RandomOrgTooManySingletonTicketsError when the maximum 
+        number of singleton tickets for this API key has been reached.
+        
         Raises a ValueError on RANDOM.ORG Errors, error descriptions:
-        https://api.random.org/json-rpc/2/error-codes
+        https://api.random.org/json-rpc/3/error-codes
         
         Raises a RuntimeError on JSON-RPC Errors, error descriptions:
-        https://api.random.org/json-rpc/2/error-codes
+        https://api.random.org/json-rpc/3/error-codes
         
         Can also raise connection errors as described here:
         http://docs.python-requests.org/en/v2.0-0/user/quickstart/#errors-and-exceptions
@@ -1256,16 +1395,20 @@ class RandomOrgClient(object):
             in unmodified form in the signed response along with the 
             random data. If an object is present, its maximum size in 
             encoded (string) form is 1,000 characters.
+        ticket_id -- A string with ticket identifier obtained via the 
+            create_tickets method. Specifying a value for ticket_id will 
+            cause RANDOM.ORG to record that the ticket was used to generate 
+            the requested random values. Each ticket can only be used once.
         """
         
         params = { 'apiKey':self._api_key, 'n':n, 'length':length, 
                    'characters':characters, 'replacement':replacement,
-                   'userData':user_data }
+                   'userData':user_data, 'ticketId':ticket_id }
         request = self._generate_request(_SIGNED_STRING_METHOD, params)
         response = self._send_request(request)
         return self._extract_signed_response(response, self._extract_strings)
     
-    def generate_signed_UUIDs(self, n, user_data=None):
+    def generate_signed_UUIDs(self, n, user_data=None, ticket_id=None):
         """
         Generate digitally signed random UUIDs.
         
@@ -1275,7 +1418,7 @@ class RandomOrgClient(object):
         parsed random UUID list mapped to 'data', the original response
         mapped to 'random', and the response's signature mapped to 
         'signature'. See:
-        https://api.random.org/json-rpc/2/signed#generateSignedUUIDs
+        https://api.random.org/json-rpc/3/signed#generateSignedUUIDs
         
         Raises a RandomOrgSendTimeoutError if time spent waiting before
         request is sent exceeds this instance's blocking_timeout.
@@ -1298,11 +1441,23 @@ class RandomOrgClient(object):
         Raises a RandomOrgKeyInvalidVersionError if this API key is not 
         valid for the version of the API invoked.
         
+        Raises a RandomOrgTicketNonExistentError if the ticket used 
+        does not exist.
+
+        Raises a RandomOrgTicketAPIKeyMismatchError if the ticket used 
+        exists but is not associated with the API key specified.
+
+        Raises a RandomOrgTicketAlreadyUsedError if a ticket has already 
+        been used.
+        
+        Raises a RandomOrgTooManySingletonTicketsError when the maximum 
+        number of singleton tickets for this API key has been reached.
+        
         Raises a ValueError on RANDOM.ORG Errors, error descriptions:
-        https://api.random.org/json-rpc/2/error-codes
+        https://api.random.org/json-rpc/3/error-codes
         
         Raises a RuntimeError on JSON-RPC Errors, error descriptions:
-        https://api.random.org/json-rpc/2/error-codes
+        https://api.random.org/json-rpc/3/error-codes
         
         Can also raise connection errors as described here:
         http://docs.python-requests.org/en/v2.0-0/user/quickstart/#errors-and-exceptions
@@ -1315,15 +1470,20 @@ class RandomOrgClient(object):
             in unmodified form in the signed response along with the 
             random data. If an object is present, its maximum size in 
             encoded (string) form is 1,000 characters.
+        ticket_id -- A string with ticket identifier obtained via the 
+            create_tickets method. Specifying a value for ticket_id will 
+            cause RANDOM.ORG to record that the ticket was used to generate 
+            the requested random values. Each ticket can only be used once.
         """
         
-        params = { 'apiKey':self._api_key, 'n':n, 'userData':user_data }
+        params = { 'apiKey':self._api_key, 'n':n, 'userData':user_data, 
+                  'ticketId':ticket_id }
         request = self._generate_request(_SIGNED_UUID_METHOD, params)
         response = self._send_request(request)
         return self._extract_signed_response(response, self._extract_UUIDs)
     
-    def generate_signed_blobs(self, n, size, format=_BLOB_FORMAT_BASE64,
-                              user_data=None):
+    def generate_signed_blobs(self, n, size, format=_BLOB_FORMAT_BASE64, 
+                              user_data=None, ticket_id=None):
         """
         Generate digitally signed random BLOBs.
         
@@ -1332,7 +1492,7 @@ class RandomOrgClient(object):
         dictionary object with the parsed random BLOB list mapped to 
         'data', the original response mapped to 'random', and the 
         response's signature mapped to 'signature'. See:
-        https://api.random.org/json-rpc/2/signed#generateSignedBlobs
+        https://api.random.org/json-rpc/3/signed#generateSignedBlobs
         
         Raises a RandomOrgSendTimeoutError if time spent waiting before
         request is sent exceeds this instance's blocking_timeout.
@@ -1355,11 +1515,23 @@ class RandomOrgClient(object):
         Raises a RandomOrgKeyInvalidVersionError if this API key is not 
         valid for the version of the API invoked.
         
+        Raises a RandomOrgTicketNonExistentError if the ticket used 
+        does not exist.
+
+        Raises a RandomOrgTicketAPIKeyMismatchError if the ticket used 
+        exists but is not associated with the API key specified.
+
+        Raises a RandomOrgTicketAlreadyUsedError if a ticket has already 
+        been used.
+        
+        Raises a RandomOrgTooManySingletonTicketsError when the maximum 
+        number of singleton tickets for this API key has been reached.
+        
         Raises a ValueError on RANDOM.ORG Errors, error descriptions:
-        https://api.random.org/json-rpc/2/error-codes
+        https://api.random.org/json-rpc/3/error-codes
         
         Raises a RuntimeError on JSON-RPC Errors, error descriptions:
-        https://api.random.org/json-rpc/2/error-codes
+        https://api.random.org/json-rpc/3/error-codes
         
         Can also raise connection errors as described here:
         http://docs.python-requests.org/en/v2.0-0/user/quickstart/#errors-and-exceptions
@@ -1377,10 +1549,15 @@ class RandomOrgClient(object):
             in unmodified form in the signed response along with the 
             random data. If an object is present, its maximum size in 
             encoded (string) form is 1,000 characters.
+        ticket_id -- A string with ticket identifier obtained via the 
+            create_tickets method. Specifying a value for ticket_id will 
+            cause RANDOM.ORG to record that the ticket was used to generate 
+            the requested random values. Each ticket can only be used once.
         """
         
         params = { 'apiKey':self._api_key, 'n':n, 'size':size, 
-                  'format':format, 'userData':user_data }
+                  'format':format, 'userData':user_data, 
+                  'ticketId':ticket_id }
         request = self._generate_request(_SIGNED_BLOB_METHOD, params)
         response = self._send_request(request)
         return self._extract_signed_response(response, self._extract_blobs)
@@ -1391,7 +1568,7 @@ class RandomOrgClient(object):
         
         Retrieve results generated using signed methods within the last 
         24 hours using its serialNumber. See:
-        https://api.random.org/json-rpc/2/signed#getResult  
+        https://api.random.org/json-rpc/3/signed#getResult  
         
         Raises a RandomOrgSendTimeoutError if time spent waiting before
         request is sent exceeds this instance's blocking_timeout.
@@ -1415,10 +1592,10 @@ class RandomOrgClient(object):
         valid for the version of the API invoked.
         
         Raises a ValueError on RANDOM.ORG Errors, error descriptions:
-        https://api.random.org/json-rpc/2/error-codes
+        https://api.random.org/json-rpc/3/error-codes
         
         Raises a RuntimeError on JSON-RPC Errors, error descriptions:
-        https://api.random.org/json-rpc/2/error-codes
+        https://api.random.org/json-rpc/3/error-codes
         
         Can also raise connection errors as described here:
         http://docs.python-requests.org/en/v2.0-0/user/quickstart/#errors-and-exceptions
@@ -1433,8 +1610,166 @@ class RandomOrgClient(object):
         response = self._send_request(request)
         return self._extract_signed_response(response, self._extract_response)
     
+    def create_tickets(self, n, show_result):
+        """
+        Create tickets to be used in signed value-generating methods. 
+        
+        This method creates a number of tickets. The tickets can be 
+        used in one of the methods that generate random values. See:
+        https://api.random.org/json-rpc/3/signed#createTickets
+        
+        Raises a RandomOrgSendTimeoutError if time spent waiting before
+        request is sent exceeds this instance's blocking_timeout.
+        
+        Raises a RandomOrgKeyNonExistentError if this API key does not 
+        exist.
+        
+        Raises a RandomOrgKeyNotRunningError if this API key is stopped. 
+        
+        Raises a RandomOrgInsufficientRequestsError if this API key's 
+        server requests allowance has been exceeded and the instance is
+        backing off until midnight UTC.
+        
+        Raises a RandomOrgInsufficientBitsError if this API key's 
+        server bits allowance has been exceeded.
+        
+        Raises a RandomOrgKeyInvalidAccessError if this API key is not 
+        valid for this method.
+        
+        Raises a RandomOrgKeyInvalidVersionError if this API key is not 
+        valid for the version of the API invoked.
+        
+        Raises a ValueError on RANDOM.ORG Errors, error descriptions:
+        https://api.random.org/json-rpc/3/error-codes
+        
+        Raises a RuntimeError on JSON-RPC Errors, error descriptions:
+        https://api.random.org/json-rpc/3/error-codes
+        
+        Can also raise connection errors as described here:
+        http://docs.python-requests.org/en/v2.0-0/user/quickstart/#errors-and-exceptions
+        
+        Keyword arguments:
+        
+        n -- The number of tickets requested. This must be a number 
+            in the [1, 50] range.
+        showResult -- A boolean value that determines how much information 
+            calls to get_ticket will return. If show_result is false, getTicket 
+            will return only the basic ticket information. If show_result is 
+            true, the full random and signature objects from the response that 
+            was used to satisfy the ticket is returned.        
+        """
+        
+        params = { 'apiKey':self._api_key, 'n':n, 'showResult':show_result }
+        request = self._generate_request(_CREATE_TICKETS_METHOD, params)
+        response = self._send_request(request)
+        return self._extract_tickets(response)
+    
+    def list_tickets(self, ticket_type):
+        """
+        Obtain information about tickets linked with your API key.
+        
+        This method obtains information about tickets that exist 
+        for a given API key. See:
+        https://api.random.org/json-rpc/3/signed#listTickets
+        
+        Raises a RandomOrgSendTimeoutError if time spent waiting before
+        request is sent exceeds this instance's blocking_timeout.
+        
+        Raises a RandomOrgKeyNonExistentError if this API key does not 
+        exist.
+        
+        Raises a RandomOrgKeyNotRunningError if this API key is stopped. 
+        
+        Raises a RandomOrgInsufficientRequestsError if this API key's 
+        server requests allowance has been exceeded and the instance is
+        backing off until midnight UTC.
+        
+        Raises a RandomOrgInsufficientBitsError if this API key's 
+        server bits allowance has been exceeded.
+        
+        Raises a RandomOrgKeyInvalidAccessError if this API key is not 
+        valid for this method.
+        
+        Raises a RandomOrgKeyInvalidVersionError if this API key is not 
+        valid for the version of the API invoked.
+        
+        Raises a ValueError on RANDOM.ORG Errors, error descriptions:
+        https://api.random.org/json-rpc/3/error-codes
+        
+        Raises a RuntimeError on JSON-RPC Errors, error descriptions:
+        https://api.random.org/json-rpc/3/error-codes
+        
+        Can also raise connection errors as described here:
+        http://docs.python-requests.org/en/v2.0-0/user/quickstart/#errors-and-exceptions
+        
+        Keyword arguments:
+        
+        ticket_type -- A string describing the type of tickets you want to obtain 
+            information about. Possible values are singleton, head and tail. 
+            Specifying singleton will cause list_tickets to return tickets that 
+            have no previous or next tickets. Specifying head will return tickets 
+            that do not have a previous ticket but that do have a next ticket. 
+            Specifying tail will cause list_tickets to return tickets that have a 
+            previous ticket but do not have a next ticket. 
+        """
+        params = { 'apiKey':self._api_key, 'ticketType':ticket_type }
+        request = self._generate_request(_LIST_TICKETS_METHOD, params)
+        response = self._send_request(request)
+        return self._extract_tickets(response)
+    
+    def get_ticket(self, ticket_id):
+        """
+        Obtain information about a single ticket. 
+        
+        This method obtains information about a single ticket. If
+        the ticket has showResult set to true and has been used, 
+        get ticket will return the values generated. See:
+        https://api.random.org/json-rpc/3/signed#getTicket
+        
+        Raises a RandomOrgSendTimeoutError if time spent waiting before
+        request is sent exceeds this instance's blocking_timeout.
+        
+        Raises a RandomOrgKeyNonExistentError if this API key does not 
+        exist.
+        
+        Raises a RandomOrgKeyNotRunningError if this API key is stopped. 
+        
+        Raises a RandomOrgInsufficientRequestsError if this API key's 
+        server requests allowance has been exceeded and the instance is
+        backing off until midnight UTC.
+        
+        Raises a RandomOrgInsufficientBitsError if this API key's 
+        server bits allowance has been exceeded.
+        
+        Raises a RandomOrgKeyInvalidAccessError if this API key is not 
+        valid for this method.
+        
+        Raises a RandomOrgKeyInvalidVersionError if this API key is not 
+        valid for the version of the API invoked.
+        
+        Raises a ValueError on RANDOM.ORG Errors, error descriptions:
+        https://api.random.org/json-rpc/3/error-codes
+        
+        Raises a RuntimeError on JSON-RPC Errors, error descriptions:
+        https://api.random.org/json-rpc/3/error-codes
+        
+        Can also raise connection errors as described here:
+        http://docs.python-requests.org/en/v2.0-0/user/quickstart/#errors-and-exceptions
+        
+        Keyword arguments:
+        
+        ticket_id -- A string containing a ticket identifier returned by a prior 
+        call to the create_tickets method.
+        """
+        
+        params = { 'ticketId':ticket_id }
+        request = self._generate_request(_GET_TICKET_METHOD, params)
+        response = self._send_request(request)
+        return self._extract_tickets(response)
+    
+    
     # Signature verification for signed methods, see:
-    # https://api.random.org/json-rpc/2/signed
+    # https://api.random.org/json-rpc/3/signed
     
     def verify_signature(self, random, signature):
         """
@@ -1444,7 +1779,7 @@ class RandomOrgClient(object):
         of the methods in the Signed API with the server. This is used
         to examine the authenticity of numbers. Return True on 
         verification success. See:
-        https://api.random.org/json-rpc/2/signed#verifySignature
+        https://api.random.org/json-rpc/3/signed#verifySignature
         
         Raises a RandomOrgSendTimeoutError if time spent waiting before
         request is sent exceeds this instance's blocking_timeout.
@@ -1468,10 +1803,10 @@ class RandomOrgClient(object):
         valid for the version of the API invoked.
         
         Raises a ValueError on RANDOM.ORG Errors, error descriptions:
-        https://api.random.org/json-rpc/2/error-codes
+        https://api.random.org/json-rpc/3/error-codes
         
         Raises a RuntimeError on JSON-RPC Errors, error descriptions:
-        https://api.random.org/json-rpc/2/error-codes
+        https://api.random.org/json-rpc/3/error-codes
         
         Can also raise connection errors as described here:
         http://docs.python-requests.org/en/v2.0-0/user/quickstart/#errors-and-exceptions
@@ -1484,6 +1819,11 @@ class RandomOrgClient(object):
         the random field originates from.
         """
         
+        # Ensuring that ticketData is in the correct order for 
+        # Release 3 and older versions of Python where dictionaries
+        # are not ordered
+        if sys.version_info[0] < 3.6:
+            random = self._order_ticket_data(random)
         params = { 'random':random, 'signature':signature }
         request = self._generate_request(_VERIFY_SIGNATURE_METHOD, params)
         response = self._send_request(request)
@@ -1604,7 +1944,7 @@ class RandomOrgClient(object):
                               self._extract_int_sequences, 
                               request, cache_size, bulk_n, n)
     
-    def create_decimal_fraction_cache(self, n, decimal_places, replacement=True,
+    def create_decimal_fraction_cache(self, n, decimal_places, replacement=True, 
                                        cache_size=20):
         """
         Get a RandomOrgCache to obtain random decimal fractions.
@@ -1844,10 +2184,10 @@ class RandomOrgClient(object):
         server bits allowance has been exceeded.
         
         Raises a ValueError on RANDOM.ORG Errors, error descriptions:
-        https://api.random.org/json-rpc/2/error-codes
+        https://api.random.org/json-rpc/3/error-codes
         
         Raises a RuntimeError on JSON-RPC Errors, error descriptions:
-        https://api.random.org/json-rpc/2/error-codes
+        https://api.random.org/json-rpc/3/error-codes
         
         Can also raise connection errors as described here:
         http://docs.python-requests.org/en/v2.0-0/user/quickstart/#errors-and-exceptions
@@ -1892,10 +2232,10 @@ class RandomOrgClient(object):
         server bits allowance has been exceeded.
         
         Raises a ValueError on RANDOM.ORG Errors, error descriptions:
-        https://api.random.org/json-rpc/2/error-codes
+        https://api.random.org/json-rpc/3/error-codes
         
         Raises a RuntimeError on JSON-RPC Errors, error descriptions:
-        https://api.random.org/json-rpc/2/error-codes
+        https://api.random.org/json-rpc/3/error-codes
         
         Can also raise connection errors as described here:
         http://docs.python-requests.org/en/v2.0-0/user/quickstart/#errors-and-exceptions
@@ -2027,7 +2367,7 @@ class RandomOrgClient(object):
             time.sleep(wait)
         
         # Send the request & parse the response.
-        response = requests.post('https://api.random.org/json-rpc/2/invoke',
+        response = requests.post('https://api.random.org/json-rpc/3/invoke',
                                  data=json.dumps(request), 
                                  headers={'content-type': 'application/json'},
                                  timeout=self._http_timeout)
@@ -2038,21 +2378,21 @@ class RandomOrgClient(object):
             message = data['error']['message']
             
             # RuntimeError, error codes listed under JSON-RPC Errors:
-            # https://api.random.org/json-rpc/2/error-codes
+            # https://api.random.org/json-rpc/3/error-codes
             if code in ([-32700] + list(range(-32603,-32600)) 
                         + list(range(-32099,-32000))):                
                 return { 'exception': RuntimeError('Error ' + str(code) 
                                                    + ': ' + message) }
             
             # RandomOrgKeyNonExistentError, API key does not exist, from 
-            # RANDOM.ORG Errors: https://api.random.org/json-rpc/2/error-codes
+            # RANDOM.ORG Errors: https://api.random.org/json-rpc/3/error-codes
             elif code == 400:
                 return { 'exception': 
                         RandomOrgKeyNonExistentError('Error ' + str(code) 
                                                     + ': ' + message) }
             
             # RandomOrgKeyNotRunningError, API key not running, from 
-            # RANDOM.ORG Errors: https://api.random.org/json-rpc/2/error-codes
+            # RANDOM.ORG Errors: https://api.random.org/json-rpc/3/error-codes
             elif code == 401:
                 return { 'exception': 
                         RandomOrgKeyNotRunningError('Error ' + str(code) 
@@ -2060,7 +2400,7 @@ class RandomOrgClient(object):
                 
             # RandomOrgInsufficientRequestsError, requests allowance 
             # exceeded, backoff until midnight UTC, from RANDOM.ORG 
-            # Errors: https://api.random.org/json-rpc/2/error-codes
+            # Errors: https://api.random.org/json-rpc/3/error-codes
             elif code == 402:
                 self._backoff = datetime.utcnow().replace(day=datetime.utcnow().day+1, hour=0, 
                                                           minute=0, second=0, microsecond=0)
@@ -2069,7 +2409,7 @@ class RandomOrgClient(object):
                         RandomOrgInsufficientRequestsError(self._backoff_error) }
             
             # RandomOrgInsufficientBitsError, bits allowance exceeded,
-            # from RANDOM.ORG Errors: https://api.random.org/json-rpc/2/error-codes
+            # from RANDOM.ORG Errors: https://api.random.org/json-rpc/3/error-codes
             elif code == 403:
                 return { 'exception': 
                         RandomOrgInsufficientBitsError('Error ' + str(code) 
@@ -2077,7 +2417,7 @@ class RandomOrgClient(object):
             
             # RandomOrgKeyInvalidAccessError, key is not valid for method 
             # requested, from RANDOM.ORG Errors: 
-            # https://api.random.org/json-rpc/2/error-codes
+            # https://api.random.org/json-rpc/3/error-codes
             elif code == 404:
                 return { 'exception':
                         RandomOrgKeyInvalidAccessError('Error ' + str(code) 
@@ -2085,14 +2425,50 @@ class RandomOrgClient(object):
             
             # RandomOrgKeyInvalidVersionError, key is not valid for the 
             # version of the API you are invoking, from RANDOM.ORG Errors: 
-            # https://api.random.org/json-rpc/2/error-codes
+            # https://api.random.org/json-rpc/3/error-codes
             elif code == 405:
                 return { 'exception':
                         RandomOrgKeyInvalidVersionError('Error' + str(code) 
                                                         + ': ' + message)}
             
+            # RandomOrgTicketNonExistentError, the ticket specified does
+            # not exist, from RANDOM.ORG Errors: 
+            # https://api.random.org/json-rpc/3/error-codes 
+            elif code == 420:
+                return { 'exception':
+                        RandomOrgTicketNonExistentError('Error' + str(code) 
+                                                        + ': ' + message)}
+            
+            # RandomOrgTicketAPIKeyMismatchError, the ticket specified 
+            # exists but is not for the API key you specified, 
+            # from RANDOM.ORG Errors: 
+            # https://api.random.org/json-rpc/3/error-codes
+            elif code == 421:
+                return { 'exception':
+                        RandomOrgTicketAPIKeyMismatchError('Error' + str(code) 
+                                                           + ': ' + message)}
+            
+            # RandomOrgTicketAlreadyUsedError, the ticket specified has 
+            # already been used, from RANDOM.ORG Errors: 
+            # https://api.random.org/json-rpc/3/error-codes
+            elif code == 422:
+                return { 'exception':
+                        RandomOrgTicketAlreadyUsedError('Error' + str(code) 
+                                                        + ': ' + message)}
+            
+            # RandomOrgTooManySingletonTicketsError, the maximum number 
+            # of singleton tickets available for your API key has been 
+            # reached, from RANDOM.ORG Errors: 
+            # https://api.random.org/json-rpc/3/error-codes
+            elif code == 423:
+                return { 'exception':
+                        RandomOrgTooManySingletonTicketsError('Error' 
+                                                              + str(code) 
+                                                              + ': '
+                                                              + message)}
+            
             # ValueError, error codes listed under RANDOM.ORG Errors:
-            # https://api.random.org/json-rpc/2/error-codes
+            # https://api.random.org/json-rpc/3/error-codes
             else:
                 return { 'exception': ValueError('Error ' + str(code) 
                                                  + ': ' + message) }
@@ -2154,6 +2530,10 @@ class RandomOrgClient(object):
         # Gets verification boolean.
         return bool(response['result']['authenticity'])
     
+    def _extract_tickets(self, response):
+        # Gets list of tickets for create_tickets method
+        return response['result']
+    
     def _extract_ints(self, response):
         # json to integer list.
         return list(map(int, self._extract_response(response)))
@@ -2178,3 +2558,21 @@ class RandomOrgClient(object):
     def _extract_blobs(self, response):
         # json to blob list (no change).
         return self._extract_response(response)
+
+    def _order_ticket_data(self, random):
+        # orders the information in ticketData to ensure successful signature 
+        # verification for Python 2.7 (R3)
+        if random['ticketData'] is not None:
+            random_ordered = OrderedDict()
+            for key in random:
+                if key == 'ticketData':
+                    ticket_data = OrderedDict()
+                    ticket_data['ticketId'] = random['ticketData']['ticketId']
+                    ticket_data['previousTicketId'] = random['ticketData']['previousTicketId']
+                    ticket_data['nextTicketId'] = random['ticketData']['nextTicketId']
+                    random_ordered[key] = ticket_data
+                else:
+                    random_ordered[key] = random[key]
+            return random_ordered
+        else:
+            return random

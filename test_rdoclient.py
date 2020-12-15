@@ -35,6 +35,7 @@ class TestRandomOrgSerialClient(unittest.TestCase):
     
     def tearDown(self):
         """Kill all clients."""
+        delattr(self._serial_client, '_api_key')
         self._serial_client = None
         RandomOrgClient.__key_indexed_instances = {}
     
@@ -59,6 +60,7 @@ class TestRandomOrgClient(unittest.TestCase):
     
     def tearDown(self):
         """Kill all clients."""
+        delattr(self._client, '_api_key')
         self._client = None
         RandomOrgClient.__key_indexed_instances = {}
     

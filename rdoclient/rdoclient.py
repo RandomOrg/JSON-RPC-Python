@@ -245,6 +245,12 @@ class RandomOrgCache(object):
         self._bulk_request_number = bulk_request_number
         self._request_number = request_number
         
+        # Handle integers with non-decimal base
+        if 'base' in self._request['params']:
+            self._decimal = self._request['params']['base'] == 10
+        else:
+            self._decimal = True
+        
         # Condition lock to allow notification when an item is consumed
         # or pause state is updated.
         self._lock = threading.Condition()
@@ -279,9 +285,12 @@ class RandomOrgCache(object):
                                           - self._bulk_request_number):
                     
                     # Issue and process request and response.
-                    try:
+                    try:            
                         response = self._request_function(self._request)
-                        result = self._process_function(response)
+                        if self._decimal: 
+                            result = self._process_function(response)
+                        else:
+                            result = self._process_function(response, self._decimal)
                         
                         # Split bulk response into result sets.
                         try:
@@ -309,8 +318,10 @@ class RandomOrgCache(object):
             elif not self._queue.full():
                 try:
                     response = self._request_function(self._request)
-                    self._queue.put(self._process_function(response))
-                
+                    if self._decimal:
+                        self._queue.put(self._process_function(response))
+                    else:
+                        self._queue.put(self._process_function(response, self._decimal))
                 except Exception as e:
                     # Don't handle failures from _request_function()
                     # Just try again later.
@@ -619,7 +630,7 @@ class RandomOrgClient(object):
                   'replacement':replacement, 'base':base }
         request = self._generate_request(_INTEGER_METHOD, params)
         response = self._send_request(request)
-        return self._extract_ints(response)
+        return self._extract_ints(response, base == 10)
     
     def generate_integer_sequences(self, n, length, min, max, replacement=True, 
                                    base=10):
@@ -689,7 +700,7 @@ class RandomOrgClient(object):
                   'max':max, 'replacement':replacement, 'base':base }
         request = self._generate_request(_INTEGER_SEQUENCES_METHOD, params)
         response = self._send_request(request)
-        return self._extract_int_sequences(response)
+        return self._extract_int_sequences(response, base == 10)
     
     def generate_decimal_fractions(self, n, decimal_places, replacement=True):
         """
@@ -1059,7 +1070,7 @@ class RandomOrgClient(object):
                   'ticketId':ticket_id }
         request = self._generate_request(_SIGNED_INTEGER_METHOD, params)
         response = self._send_request(request)
-        return self._extract_signed_response(response, self._extract_ints)
+        return self._extract_signed_response(response, self._extract_ints, base == 10)
     
     def generate_signed_integer_sequences(self, n, length, min, max, 
                                           replacement=True, base=10, 
@@ -1154,7 +1165,8 @@ class RandomOrgClient(object):
                   'userData':user_data, 'ticketId':ticket_id }
         request = self._generate_request(_SIGNED_INTEGER_SEQUENCES_METHOD, params)
         response = self._send_request(request)
-        return self._extract_signed_response(response, self._extract_int_sequences)
+        return self._extract_signed_response(response, self._extract_int_sequences, 
+                                             base == 10)
     
     def generate_signed_decimal_fractions(self, n, decimal_places, 
                                           replacement=True, user_data=None, 
@@ -1867,7 +1879,7 @@ class RandomOrgClient(object):
         # from the server. Either 5 sets of items at a time, or 
         # cache_size/2 if 5 >= cache_size.
         if replacement:
-            bulk_n = cache_size/2 if 5 >= cache_size else 5
+            bulk_n = cache_size//2 if 5 >= cache_size else 5
             params = { 'apiKey':self._api_key, 'n':bulk_n*n, 
                        'min':min, 'max':max, 'replacement':replacement, 
                        'base':base }
@@ -1925,7 +1937,7 @@ class RandomOrgClient(object):
         # from the server. Either 5 sets of items at a time, or 
         # cache_size/2 if 5 >= cache_size.
         if replacement:
-            bulk_n = cache_size/2 if 5 >= cache_size else 5
+            bulk_n = cache_size//2 if 5 >= cache_size else 5
             params = { 'apiKey':self._api_key, 'n':bulk_n*n, 
                       'length':length, 'min':min, 'max':max, 
                       'replacement':replacement, 'base':base }
@@ -1975,7 +1987,7 @@ class RandomOrgClient(object):
         # from the server. Either 5 sets of items at a time, or 
         # cache_size/2 if 5 >= cache_size.
         if replacement:
-            bulk_n = cache_size/2 if 5 >= cache_size else 5
+            bulk_n = cache_size//2 if 5 >= cache_size else 5
             params = { 'apiKey':self._api_key, 'n':bulk_n*n, 
                        'decimalPlaces':decimal_places, 
                        'replacement':replacement }
@@ -2023,7 +2035,7 @@ class RandomOrgClient(object):
         # make requests more efficient by bulk-ordering from the 
         # server. Either 5 sets of items at a time, or cache_size/2 
         # if 5 >= cache_size.
-        bulk_n = cache_size/2 if 5 >= cache_size else 5
+        bulk_n = cache_size//2 if 5 >= cache_size else 5
         params = { 'apiKey':self._api_key, 'n':bulk_n*n, 'mean':mean,
                    'standardDeviation':standard_deviation, 
                    'significantDigits':significant_digits }
@@ -2068,7 +2080,7 @@ class RandomOrgClient(object):
         # from the server. Either 5 sets of items at a time, or 
         # cache_size/2 if 5 >= cache_size.
         if replacement:
-            bulk_n = cache_size/2 if 5 >= cache_size else 5
+            bulk_n = cache_size//2 if 5 >= cache_size else 5
             params = { 'apiKey':self._api_key, 'n':bulk_n*n, 'length':length, 
                        'characters':characters, 'replacement':replacement }
         
@@ -2107,7 +2119,7 @@ class RandomOrgClient(object):
         # make requests more efficient by bulk-ordering 
         # from the server. Either 5 sets of items at a time, or 
         # cache_size/2 if 5 >= cache_size.
-        bulk_n = cache_size/2 if 5 >= cache_size else 5
+        bulk_n = cache_size//2 if 5 >= cache_size else 5
         params = { 'apiKey':self._api_key, 'n':bulk_n*n }
                 
         # get the request object for use in all requests from this cache
@@ -2145,7 +2157,7 @@ class RandomOrgClient(object):
         # make requests more efficient by bulk-ordering 
         # from the server. Either 5 sets of items at a time, or 
         # cache_size/2 if 5 >= cache_size.
-        bulk_n = cache_size/2 if 5 >= cache_size else 5
+        bulk_n = cache_size//2 if 5 >= cache_size else 5
         params = { 'apiKey':self._api_key, 'n':bulk_n*n, 'size':size, 
                   'format':format }
         
@@ -2520,11 +2532,17 @@ class RandomOrgClient(object):
         # Gets random data.
         return response['result']['random']['data']
     
-    def _extract_signed_response(self, response, extract_function):
+    def _extract_signed_response(self, response, extract_function, 
+                                 decimal=True):
         # Gets all random data and signature.
-        return { 'data':extract_function(response), 
-                 'random':response['result']['random'], 
-                 'signature':response['result']['signature'] }
+        if decimal:
+            return { 'data':extract_function(response), 
+                    'random':response['result']['random'], 
+                    'signature':response['result']['signature'] }
+        else: 
+            return { 'data':extract_function(response, decimal),
+                    'random':response['result']['random'], 
+                    'signature':response['result']['signature']}
         
     def _extract_verification_response(self, response):
         # Gets verification boolean.
@@ -2534,14 +2552,21 @@ class RandomOrgClient(object):
         # Gets list of tickets for create_tickets method
         return response['result']
     
-    def _extract_ints(self, response):
+    def _extract_ints(self, response, decimal=True):
         # json to integer list.
-        return list(map(int, self._extract_response(response)))
+        if decimal:
+            return list(map(int, self._extract_response(response)))
+        else:
+            return self._extract_response(response)
     
-    def _extract_int_sequences(self, response):
+    def _extract_int_sequences(self, response, decimal=True):
         # json to integer sequences list.
-        return [list(map(int, rest)) for rest in 
-                self._extract_response(response)]
+        if decimal:
+            return [list(map(int, rest)) for rest in 
+                    self._extract_response(response)]
+        else: 
+            return [list(rest) for rest 
+                    in self._extract_response(response)]
     
     def _extract_doubles(self, response):
         # json to double list.

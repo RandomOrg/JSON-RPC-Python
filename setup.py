@@ -6,7 +6,7 @@ def read(fname):
 
 setup(
     name = "rdoclient",
-    version = "1.3",
+    version = "1.3.1",
     author = "RANDOM.ORG",
     author_email = "contact@random.org",
     description = ("RANDOM.ORG JSON-RPC API (Release 3) implementation."),

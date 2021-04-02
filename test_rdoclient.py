@@ -1,5 +1,5 @@
 """
-RANDOM.ORG JSON-RPC API (Release 3) implementation tests.
+RANDOM.ORG JSON-RPC API (Release 4) implementation tests.
 
 Run with py.test test_rdoclient.py
 """
@@ -160,6 +160,27 @@ class TestRandomOrgClient(unittest.TestCase):
         with pytest.raises(RandomOrgTicketAlreadyUsedError):
             response = self._client.generate_signed_integers(10, 0, 10, 
                                                              ticket_id=ticket_id)
+    
+    def test_pregenerated_randomization(self):
+        """Check methods return identical values when using same date or id."""
+        
+        response_a = self._client.generate_integers(10, 0, 10, 
+                                                  pregenerated_randomization
+                                                  ={"date":"2020-01-01"})
+        time.sleep(1)
+        response_b = self._client.generate_integers(10, 0, 10, 
+                                                  pregenerated_randomization
+                                                  ={"date":"2020-01-01"})
+        assert response_a == response_b
+        
+        response_a = self._client.generate_integers(10, 0, 10, 
+                                                    pregenerated_randomization
+                                                    ={"id":"foobar"})
+        time.sleep(1)
+        response_b = self._client.generate_integers(10, 0, 10, 
+                                                    pregenerated_randomization
+                                                    ={"id":"foobar"})
+        assert response_a == response_b
     
     def test_generate_integers(self):
         """Check generate integers returns a list of integers."""

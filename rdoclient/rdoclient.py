@@ -1,7 +1,7 @@
 """
-RANDOM.ORG JSON-RPC API (Release 3) implementation.
+RANDOM.ORG JSON-RPC API (Release 4) implementation.
 
-This is a Python implementation of the RANDOM.ORG JSON-RPC API (R3).
+This is a Python implementation of the RANDOM.ORG JSON-RPC API (R4).
 It provides either serialized or unserialized access to both the signed 
 and unsigned methods of the API through the RandomOrgClient class. It 
 also provides a convenience class through the RandomOrgClient class, 
@@ -24,10 +24,10 @@ RandomOrgInsufficientRequestsError -- requests allowance exceeded.
 RandomOrgInsufficientBitsError -- bits allowance exceeded.
 
 RandomOrgKeyInvalidAccessError -- key is not valid for the requested 
-                                  method 
+                                  method.
 
 RandomOrgKeyInvalidVersionError -- key is not valid for the version 
-                                   of the API
+                                   of the API.
 
 RandomOrgTicketNonExistentError -- ticket does not exist.
 
@@ -38,9 +38,14 @@ RandomOrgTicketAlreadyUsedError -- ticket has already been used.
 
 RandomOrgTooManySingletonTicketsError -- singleton ticket allowance 
                                          exceeded.
+RandomOrgLicenseDataRequiredError -- your API key type requires valid 
+                                     license data.
+RandomOrgLicenseDataNotAllowedError -- your API key type does not support 
+                                       the license data parameter.
 """
 
 from collections import OrderedDict
+import base64
 import json
 import logging
 import threading
@@ -58,7 +63,7 @@ except ImportError:
 
 import requests
 
-# Basic RANDOM.ORG API functions https://api.random.org/json-rpc/3/basic
+# Basic RANDOM.ORG API functions https://api.random.org/json-rpc/4/basic
 _INTEGER_METHOD                  = 'generateIntegers'
 _INTEGER_SEQUENCES_METHOD        = 'generateIntegerSequences'
 _DECIMAL_FRACTION_METHOD         = 'generateDecimalFractions'
@@ -68,7 +73,7 @@ _UUID_METHOD                     = 'generateUUIDs'
 _BLOB_METHOD                     = 'generateBlobs'
 _GET_USAGE_METHOD                = 'getUsage'
 
-# Signed RANDOM.ORG API functions https://api.random.org/json-rpc/3/signed
+# Signed RANDOM.ORG API functions https://api.random.org/json-rpc/4/signed
 _SIGNED_INTEGER_METHOD           = 'generateSignedIntegers'
 _SIGNED_INTEGER_SEQUENCES_METHOD = 'generateSignedIntegerSequences'
 _SIGNED_DECIMAL_FRACTION_METHOD  = 'generateSignedDecimalFractions'
@@ -193,6 +198,24 @@ class RandomOrgTooManySingletonTicketsError(Exception):
     has been reached. 
     """
 
+class RandomOrgLicenseDataRequiredError(Exception):
+    """
+    RandomOrgClient key requires the license data parameter. 
+    
+    Exception raised by the RandomOrgClient class when the license data 
+    parameter of a signed method returning random values is not supplied, 
+    but the type of API key specified requires the request to contain valid 
+    license data. 
+    """
+    
+class RandomOrgLicenseDataNotAllowedError(Exception):
+    """
+    RandomOrgClient key does not support license data. 
+    
+    Exception raised by the RandomOrgClient class when the license data parameter 
+    is used but the API key supplied does not support the use of license data.
+    """
+
 class RandomOrgCache(object):
     """
     RandomOrgCache for precaching request responses.
@@ -285,7 +308,7 @@ class RandomOrgCache(object):
                                           - self._bulk_request_number):
                     
                     # Issue and process request and response.
-                    try:            
+                    try:
                         response = self._request_function(self._request)
                         if self._decimal: 
                             result = self._process_function(response)
@@ -337,7 +360,7 @@ class RandomOrgCache(object):
         """
         Stop cache.
         
-        Cache will not contine to populate itself.
+        Cache will not continue to populate itself.
         """
         
         self._paused = True
@@ -398,7 +421,7 @@ class RandomOrgClient(object):
     that instance will be returned on init instead of a new instance.
     
     This class obeys most of the guidelines set forth in 
-    https://api.random.org/json-rpc/3
+    https://api.random.org/json-rpc/4
     All requests respect the server's advisoryDelay returned in any 
     responses, or use _DEFAULT_DELAY if no advisoryDelay is returned. If
     the supplied API key is has exceeded its daily request allowance, 
@@ -407,7 +430,7 @@ class RandomOrgClient(object):
     Public methods:
     
     Basic methods for generating randomness, see:
-        https://api.random.org/json-rpc/3/basic
+        https://api.random.org/json-rpc/4/basic
     
     generate_integers -- get a list of random integers.
     generate_integer_sequences -- get sequences of random integers.
@@ -418,7 +441,7 @@ class RandomOrgClient(object):
     generate_blobs -- get a list of random blobs.
     
     Signed methods for generating randomness, see:
-        https://api.random.org/json-rpc/3/signed
+        https://api.random.org/json-rpc/4/signed
     
     generate_signed_integers -- get a signed response containing a list
         of random integers and a signature.
@@ -436,13 +459,13 @@ class RandomOrgClient(object):
         random blobs and a signature.
         
     Retrieving previously generated signed results (within 24h), see:
-        https://api.random.org/json-rpc/3/signed#getResult
+        https://api.random.org/json-rpc/4/signed#getResult
     
     get_result -- retrieve previously generated signed results using
        a serial number (restricted to within 24 hours after generation)
     
     Tickets for use in methods which generate signed random values, see:
-       https://api.random.org/json-rpc/3/signed
+       https://api.random.org/json-rpc/4/signed
     
     create_tickets -- create tickets for use in methods that generate
        random values with signatures
@@ -451,7 +474,7 @@ class RandomOrgClient(object):
     get_ticket -- obtain information on a single ticket
     
     Signature verification for signed methods, see:
-        https://api.random.org/json-rpc/3/signed
+        https://api.random.org/json-rpc/4/signed
     
     verify_signature -- verify a response against its signature.
     
@@ -570,15 +593,16 @@ class RandomOrgClient(object):
     
     
     # Basic methods for generating randomness, see:
-    # https://api.random.org/json-rpc/3/basic
+    # https://api.random.org/json-rpc/4/basic
     
-    def generate_integers(self, n, min, max, replacement=True, base=10):
+    def generate_integers(self, n, min, max, replacement=True, base=10, 
+                          pregenerated_randomization=None):
         """
         Generate random integers.
         
         Request and return a list (size n) of true random integers 
         within a user-defined range from the server. See:
-        https://api.random.org/json-rpc/3/basic#generateIntegers
+        https://api.random.org/json-rpc/4/basic#generateIntegers
         
         Raises a RandomOrgSendTimeoutError if time spent waiting before
         request is sent exceeds this instance's blocking_timeout.
@@ -602,10 +626,10 @@ class RandomOrgClient(object):
         valid for the version of the API invoked.
         
         Raises a ValueError on RANDOM.ORG Errors, error descriptions:
-        https://api.random.org/json-rpc/3/error-codes
+        https://api.random.org/json-rpc/4/error-codes
         
         Raises a RuntimeError on JSON-RPC Errors, error descriptions:
-        https://api.random.org/json-rpc/3/error-codes
+        https://api.random.org/json-rpc/4/error-codes
         
         Can also raise connection errors as described here:
         http://docs.python-requests.org/en/v2.0-0/user/quickstart/#errors-and-exceptions
@@ -624,23 +648,38 @@ class RandomOrgClient(object):
             unique (default True).
         base -- The base used to display the numbers in the sequences.
             Must be an integer with the value 2, 8, 10 or 16.
+        pregenerated_randomization -- Allows the client to specify that 
+            the random values should be generated from a pregenerated, 
+            historical randomization instead of a one-time on-the-fly 
+            randomization. There are three possible cases:
+            - null: the standard way of calling for random values, i.e.
+              true randomness is generated and discarded afterwards
+            - date: RANDOM.ORG uses historical true randomness generated 
+              on the corresponding date (past or present, format: 
+              { "date": "YYYY-MM-DD" })
+            - id: RANDOM.ORG uses historical true randomness derived 
+              from the corresponding identifier in a deterministic 
+              manner. Format: { "id": "PERSISTENT-IDENTIFIER" } where
+              "PERSISTENT-IDENTIFIER" is a string with length in the 
+              [1,64] range
         """
         
         params = { 'apiKey':self._api_key, 'n':n, 'min':min, 'max':max, 
-                  'replacement':replacement, 'base':base }
+                  'replacement':replacement, 'base':base, 
+                  'pregeneratedRandomization':pregenerated_randomization }
         request = self._generate_request(_INTEGER_METHOD, params)
         response = self._send_request(request)
         return self._extract_ints(response, base == 10)
     
     def generate_integer_sequences(self, n, length, min, max, replacement=True, 
-                                   base=10):
+                                   base=10, pregenerated_randomization=None):
         """
         Generate random integer sequences.
         
         Request and return a list (size n) of uniform or multiform 
         sequences of true random integers 
         within a user-defined range from the server. See:
-        https://api.random.org/json-rpc/3/basic#generateIntegerSequences
+        https://api.random.org/json-rpc/4/basic#generateIntegerSequences
         
         Raises a RandomOrgSendTimeoutError if time spent waiting before
         request is sent exceeds this instance's blocking_timeout.
@@ -664,10 +703,10 @@ class RandomOrgClient(object):
         valid for the version of the API invoked.
         
         Raises a ValueError on RANDOM.ORG Errors, error descriptions:
-        https://api.random.org/json-rpc/3/error-codes
+        https://api.random.org/json-rpc/4/error-codes
         
         Raises a RuntimeError on JSON-RPC Errors, error descriptions:
-        https://api.random.org/json-rpc/3/error-codes
+        https://api.random.org/json-rpc/4/error-codes
         
         Can also raise connection errors as described here:
         http://docs.python-requests.org/en/v2.0-0/user/quickstart/#errors-and-exceptions
@@ -695,14 +734,30 @@ class RandomOrgClient(object):
             Must be an integer with the value 2, 8, 10 or 16. For multiform
             sequences the values may be an array of length n with values 
             taken from the same set.  
+        pregenerated_randomization -- Allows the client to specify that 
+            the random values should be generated from a pregenerated, 
+            historical randomization instead of a one-time on-the-fly 
+            randomization. There are three possible cases:
+            - null: the standard way of calling for random values, i.e.
+              true randomness is generated and discarded afterwards
+            - date: RANDOM.ORG uses historical true randomness generated 
+              on the corresponding date (past or present, format: 
+              { "date": "YYYY-MM-DD" })
+            - id: RANDOM.ORG uses historical true randomness derived 
+              from the corresponding identifier in a deterministic 
+              manner. Format: { "id": "PERSISTENT-IDENTIFIER" } where
+              "PERSISTENT-IDENTIFIER" is a string with length in the 
+              [1,64] range
         """
         params = { 'apiKey':self._api_key, 'n':n, 'length':length, 'min':min, 
-                  'max':max, 'replacement':replacement, 'base':base }
+                  'max':max, 'replacement':replacement, 'base':base, 
+                  'pregeneratedRandomization':pregenerated_randomization }
         request = self._generate_request(_INTEGER_SEQUENCES_METHOD, params)
         response = self._send_request(request)
         return self._extract_int_sequences(response, base == 10)
     
-    def generate_decimal_fractions(self, n, decimal_places, replacement=True):
+    def generate_decimal_fractions(self, n, decimal_places, replacement=True, 
+                                   pregenerated_randomization=None):
         """
         Generate random decimal fractions.
         
@@ -710,7 +765,7 @@ class RandomOrgClient(object):
         fractions, from a uniform distribution across the [0,1] 
         interval with a user-defined number of decimal places from the
         server. See:
-        https://api.random.org/json-rpc/3/basic#generateDecimalFractions
+        https://api.random.org/json-rpc/4/basic#generateDecimalFractions
         
         Raises a RandomOrgSendTimeoutError if time spent waiting before
         request is sent exceeds this instance's blocking_timeout.
@@ -734,10 +789,10 @@ class RandomOrgClient(object):
         valid for the version of the API invoked.
         
         Raises a ValueError on RANDOM.ORG Errors, error descriptions:
-        https://api.random.org/json-rpc/3/error-codes
+        https://api.random.org/json-rpc/4/error-codes
         
         Raises a RuntimeError on JSON-RPC Errors, error descriptions:
-        https://api.random.org/json-rpc/3/error-codes
+        https://api.random.org/json-rpc/4/error-codes
         
         Can also raise connection errors as described here:
         http://docs.python-requests.org/en/v2.0-0/user/quickstart/#errors-and-exceptions
@@ -752,15 +807,31 @@ class RandomOrgClient(object):
             picked with replacement. If True the resulting numbers may 
             contain duplicate values, otherwise the numbers will all be
             unique (default True).
+        pregenerated_randomization -- Allows the client to specify that 
+            the random values should be generated from a pregenerated, 
+            historical randomization instead of a one-time on-the-fly 
+            randomization. There are three possible cases:
+            - null: the standard way of calling for random values, i.e.
+              true randomness is generated and discarded afterwards
+            - date: RANDOM.ORG uses historical true randomness generated 
+              on the corresponding date (past or present, format: 
+              { "date": "YYYY-MM-DD" })
+            - id: RANDOM.ORG uses historical true randomness derived 
+              from the corresponding identifier in a deterministic 
+              manner. Format: { "id": "PERSISTENT-IDENTIFIER" } where
+              "PERSISTENT-IDENTIFIER" is a string with length in the 
+              [1,64] range
         """
         
         params = { 'apiKey':self._api_key, 'n':n, 
-                   'decimalPlaces':decimal_places, 'replacement':replacement }
+                   'decimalPlaces':decimal_places, 'replacement':replacement, 
+                   'pregeneratedRandomization':pregenerated_randomization }
         request = self._generate_request(_DECIMAL_FRACTION_METHOD, params)
         response = self._send_request(request)
         return self._extract_doubles(response)
     
-    def generate_gaussians(self, n, mean, standard_deviation, significant_digits):
+    def generate_gaussians(self, n, mean, standard_deviation, significant_digits, 
+                           pregenerated_randomization=None):
         """
         Generate random numbers.
         
@@ -768,7 +839,7 @@ class RandomOrgClient(object):
         a Gaussian distribution (also known as a normal distribution). 
         The form uses a Box-Muller Transform to generate the Gaussian 
         distribution from uniformly distributed numbers. See:
-        https://api.random.org/json-rpc/3/basic#generateGaussians
+        https://api.random.org/json-rpc/4/basic#generateGaussians
         
         Raises a RandomOrgSendTimeoutError if time spent waiting before
         request is sent exceeds this instance's blocking_timeout.
@@ -792,10 +863,10 @@ class RandomOrgClient(object):
         valid for the version of the API invoked.
         
         Raises a ValueError on RANDOM.ORG Errors, error descriptions:
-        https://api.random.org/json-rpc/3/error-codes
+        https://api.random.org/json-rpc/4/error-codes
         
         Raises a RuntimeError on JSON-RPC Errors, error descriptions:
-        https://api.random.org/json-rpc/3/error-codes
+        https://api.random.org/json-rpc/4/error-codes
         
         Can also raise connection errors as described here:
         http://docs.python-requests.org/en/v2.0-0/user/quickstart/#errors-and-exceptions
@@ -810,22 +881,38 @@ class RandomOrgClient(object):
             Must be within the [-1e6,1e6] range.
         significant_digits -- The number of significant digits to use. 
             Must be within the [2,20] range.
+        pregenerated_randomization -- Allows the client to specify that 
+            the random values should be generated from a pregenerated, 
+            historical randomization instead of a one-time on-the-fly 
+            randomization. There are three possible cases:
+            - null: the standard way of calling for random values, i.e.
+              true randomness is generated and discarded afterwards
+            - date: RANDOM.ORG uses historical true randomness generated 
+              on the corresponding date (past or present, format: 
+              { "date": "YYYY-MM-DD" })
+            - id: RANDOM.ORG uses historical true randomness derived 
+              from the corresponding identifier in a deterministic 
+              manner. Format: { "id": "PERSISTENT-IDENTIFIER" } where
+              "PERSISTENT-IDENTIFIER" is a string with length in the 
+              [1,64] range
         """
         
         params = { 'apiKey':self._api_key, 'n':n, 'mean':mean,
                    'standardDeviation':standard_deviation, 
-                   'significantDigits':significant_digits }
+                   'significantDigits':significant_digits, 
+                   'pregeneratedRandomization':pregenerated_randomization }
         request = self._generate_request(_GAUSSIAN_METHOD, params)
         response = self._send_request(request)
         return self._extract_doubles(response)
     
-    def generate_strings(self, n, length, characters, replacement=True):
+    def generate_strings(self, n, length, characters, replacement=True, 
+                         pregenerated_randomization=None):
         """
         Generate random strings.
         
         Request and return a list (size n) of true random unicode 
         strings from the server. See:
-        https://api.random.org/json-rpc/3/basic#generateStrings
+        https://api.random.org/json-rpc/4/basic#generateStrings
         
         Raises a RandomOrgSendTimeoutError if time spent waiting before
         request is sent exceeds this instance's blocking_timeout.
@@ -849,10 +936,10 @@ class RandomOrgClient(object):
         valid for the version of the API invoked.
         
         Raises a ValueError on RANDOM.ORG Errors, error descriptions:
-        https://api.random.org/json-rpc/3/error-codes
+        https://api.random.org/json-rpc/4/error-codes
         
         Raises a RuntimeError on JSON-RPC Errors, error descriptions:
-        https://api.random.org/json-rpc/3/error-codes
+        https://api.random.org/json-rpc/4/error-codes
         
         Can also raise connection errors as described here:
         http://docs.python-requests.org/en/v2.0-0/user/quickstart/#errors-and-exceptions
@@ -870,22 +957,37 @@ class RandomOrgClient(object):
             picked with replacement. If True the resulting list of 
             strings may contain duplicates, otherwise the strings will 
             all be unique (default True).
+        pregenerated_randomization -- Allows the client to specify that 
+            the random values should be generated from a pregenerated, 
+            historical randomization instead of a one-time on-the-fly 
+            randomization. There are three possible cases:
+            - null: the standard way of calling for random values, i.e.
+              true randomness is generated and discarded afterwards
+            - date: RANDOM.ORG uses historical true randomness generated 
+              on the corresponding date (past or present, format: 
+              { "date": "YYYY-MM-DD" })
+            - id: RANDOM.ORG uses historical true randomness derived 
+              from the corresponding identifier in a deterministic 
+              manner. Format: { "id": "PERSISTENT-IDENTIFIER" } where
+              "PERSISTENT-IDENTIFIER" is a string with length in the 
+              [1,64] range
         """
         
         params = { 'apiKey':self._api_key, 'n':n, 'length':length, 
-                   'characters':characters, 'replacement':replacement }
+                   'characters':characters, 'replacement':replacement, 
+                   'pregeneratedRandomization':pregenerated_randomization }
         request = self._generate_request(_STRING_METHOD, params)
         response = self._send_request(request)
         return self._extract_strings(response)
     
-    def generate_UUIDs(self, n):
+    def generate_UUIDs(self, n, pregenerated_randomization=None):
         """
         Generate random UUIDs.
         
         Request and return a list (size n) of version 4 true random 
         Universally Unique IDentifiers (UUIDs) in accordance with 
         section 4.4 of RFC 4122, from the server. See:
-        https://api.random.org/json-rpc/3/basic#generateUUIDs
+        https://api.random.org/json-rpc/4/basic#generateUUIDs
         
         Raises a RandomOrgSendTimeoutError if time spent waiting before
         request is sent exceeds this instance's blocking_timeout.
@@ -909,10 +1011,10 @@ class RandomOrgClient(object):
         valid for the version of the API invoked.
         
         Raises a ValueError on RANDOM.ORG Errors, error descriptions:
-        https://api.random.org/json-rpc/3/error-codes
+        https://api.random.org/json-rpc/4/error-codes
         
         Raises a RuntimeError on JSON-RPC Errors, error descriptions:
-        https://api.random.org/json-rpc/3/error-codes
+        https://api.random.org/json-rpc/4/error-codes
         
         Can also raise connection errors as described here:
         http://docs.python-requests.org/en/v2.0-0/user/quickstart/#errors-and-exceptions
@@ -921,21 +1023,37 @@ class RandomOrgClient(object):
         
         n -- How many random UUIDs you need. Must be within the [1,1e3]
             range.
+        pregenerated_randomization -- Allows the client to specify that 
+            the random values should be generated from a pregenerated, 
+            historical randomization instead of a one-time on-the-fly 
+            randomization. There are three possible cases:
+            - null: the standard way of calling for random values, i.e.
+              true randomness is generated and discarded afterwards
+            - date: RANDOM.ORG uses historical true randomness generated 
+              on the corresponding date (past or present, format: 
+              { "date": "YYYY-MM-DD" })
+            - id: RANDOM.ORG uses historical true randomness derived 
+              from the corresponding identifier in a deterministic 
+              manner. Format: { "id": "PERSISTENT-IDENTIFIER" } where
+              "PERSISTENT-IDENTIFIER" is a string with length in the 
+              [1,64] range
         """
         
-        params = { 'apiKey':self._api_key, 'n':n }
+        params = { 'apiKey':self._api_key, 'n':n, 
+                  'pregeneratedRandomization':pregenerated_randomization }
         request = self._generate_request(_UUID_METHOD, params)
         response = self._send_request(request)
         return self._extract_UUIDs(response)
     
-    def generate_blobs(self, n, size, format=_BLOB_FORMAT_BASE64):
+    def generate_blobs(self, n, size, format=_BLOB_FORMAT_BASE64, 
+                       pregenerated_randomization=None):
         """
         Generate random BLOBs.
         
         Request and return a list (size n) of Binary Large OBjects 
         (BLOBs) as unicode strings containing true random data from the
         server. See:
-        https://api.random.org/json-rpc/3/basic#generateBlobs
+        https://api.random.org/json-rpc/4/basic#generateBlobs
         
         Raises a RandomOrgSendTimeoutError if time spent waiting before
         request is sent exceeds this instance's blocking_timeout.
@@ -959,10 +1077,10 @@ class RandomOrgClient(object):
         valid for the version of the API invoked.
         
         Raises a ValueError on RANDOM.ORG Errors, error descriptions:
-        https://api.random.org/json-rpc/3/error-codes
+        https://api.random.org/json-rpc/4/error-codes
         
         Raises a RuntimeError on JSON-RPC Errors, error descriptions:
-        https://api.random.org/json-rpc/3/error-codes
+        https://api.random.org/json-rpc/4/error-codes
         
         Can also raise connection errors as described here:
         http://docs.python-requests.org/en/v2.0-0/user/quickstart/#errors-and-exceptions
@@ -976,19 +1094,36 @@ class RandomOrgClient(object):
         format -- Specifies the format in which the blobs will be 
             returned. Values allowed are _BLOB_FORMAT_BASE64 and 
             _BLOB_FORMAT_HEX (default _BLOB_FORMAT_BASE64).
+        pregenerated_randomization -- Allows the client to specify that 
+            the random values should be generated from a pregenerated, 
+            historical randomization instead of a one-time on-the-fly 
+            randomization. There are three possible cases:
+            - null: the standard way of calling for random values, i.e.
+              true randomness is generated and discarded afterwards
+            - date: RANDOM.ORG uses historical true randomness generated 
+              on the corresponding date (past or present, format: 
+              { "date": "YYYY-MM-DD" })
+            - id: RANDOM.ORG uses historical true randomness derived 
+              from the corresponding identifier in a deterministic 
+              manner. Format: { "id": "PERSISTENT-IDENTIFIER" } where
+              "PERSISTENT-IDENTIFIER" is a string with length in the 
+              [1,64] range
         """
         
-        params = { 'apiKey':self._api_key, 'n':n, 'size':size, 'format':format }
+        params = { 'apiKey':self._api_key, 'n':n, 'size':size, 'format':format, 
+                  'pregeneratedRandomization':pregenerated_randomization }
         request = self._generate_request(_BLOB_METHOD, params)
         response = self._send_request(request)
         return self._extract_blobs(response)
     
     
     # Signed methods for generating randomness, see:
-    # https://api.random.org/json-rpc/3/signed
+    # https://api.random.org/json-rpc/4/signed
     
     def generate_signed_integers(self, n, min, max, replacement=True, 
-                                 base=10, user_data=None, ticket_id=None):
+                                 base=10, pregenerated_randomization=None, 
+                                 license_data=None, user_data=None, 
+                                 ticket_id=None):
         """
         Generate digitally signed random integers.
         
@@ -997,7 +1132,7 @@ class RandomOrgClient(object):
         with the parsed integer list mapped to 'data', the original 
         response mapped to 'random', and the response's signature 
         mapped to 'signature'. See:
-        https://api.random.org/json-rpc/3/signed#generateSignedIntegers
+        https://api.random.org/json-rpc/4/signed#generateSignedIntegers
         
         Raises a RandomOrgSendTimeoutError if time spent waiting before
         request is sent exceeds this instance's blocking_timeout.
@@ -1033,10 +1168,10 @@ class RandomOrgClient(object):
         number of singleton tickets for this API key has been reached.
         
         Raises a ValueError on RANDOM.ORG Errors, error descriptions:
-        https://api.random.org/json-rpc/3/error-codes
+        https://api.random.org/json-rpc/4/error-codes
         
         Raises a RuntimeError on JSON-RPC Errors, error descriptions:
-        https://api.random.org/json-rpc/3/error-codes
+        https://api.random.org/json-rpc/4/error-codes
         
         Can also raise connection errors as described here:
         http://docs.python-requests.org/en/v2.0-0/user/quickstart/#errors-and-exceptions
@@ -1055,6 +1190,26 @@ class RandomOrgClient(object):
             unique (default True).
         base -- The base used to display the numbers in the sequences.
             Must be an integer with the value 2, 8, 10 or 16.
+        pregenerated_randomization -- Allows the client to specify that 
+            the random values should be generated from a pregenerated, 
+            historical randomization instead of a one-time on-the-fly 
+            randomization. There are three possible cases:
+            - null: the standard way of calling for random values, i.e.
+              true randomness is generated and discarded afterwards
+            - date: RANDOM.ORG uses historical true randomness generated 
+              on the corresponding date (past or present, format: 
+              { "date": "YYYY-MM-DD" })
+            - id: RANDOM.ORG uses historical true randomness derived 
+              from the corresponding identifier in a deterministic 
+              manner. Format: { "id": "PERSISTENT-IDENTIFIER" } where
+              "PERSISTENT-IDENTIFIER" is a string with length in the 
+              [1,64] range
+        license_data -- Allows the caller to include data of relevance to 
+            the license that is associated with the API Key.This is mandatory
+            for API Keys with the license type "Flexible Gambling" and follows
+            the format { "maxPayout": { "currency": "XTS", "amount": 0.0 } }. 
+            This information is used in licensing requested random values and 
+            in billing. The currently supported currencies are: "USD".
         user_data -- Contains an optional object that will be included 
             in unmodified form in the signed response along with the 
             random data. If an object is present, its maximum size in 
@@ -1066,7 +1221,9 @@ class RandomOrgClient(object):
         """
         
         params = { 'apiKey':self._api_key, 'n':n, 'min':min, 'max':max, 
-                  'replacement':replacement, 'base':base, 'userData':user_data, 
+                  'replacement':replacement, 'base':base, 
+                  'pregeneratedRandomization':pregenerated_randomization, 
+                  'licenseData':license_data, 'userData':user_data, 
                   'ticketId':ticket_id }
         request = self._generate_request(_SIGNED_INTEGER_METHOD, params)
         response = self._send_request(request)
@@ -1074,7 +1231,9 @@ class RandomOrgClient(object):
     
     def generate_signed_integer_sequences(self, n, length, min, max, 
                                           replacement=True, base=10, 
-                                          user_data=None, ticket_id=None):
+                                          pregenerated_randomization=None, 
+                                          license_data=None, user_data=None, 
+                                          ticket_id=None):
         """
         Generate digitally signed sequences of random integers.
         
@@ -1083,7 +1242,7 @@ class RandomOrgClient(object):
         with the parsed integer list mapped to 'data', the original 
         response mapped to 'random', and the response's signature 
         mapped to 'signature'. See:
-        https://api.random.org/json-rpc/3/signed#generateSignedIntegerSequences
+        https://api.random.org/json-rpc/4/signed#generateSignedIntegerSequences
         
         Raises a RandomOrgSendTimeoutError if time spent waiting before
         request is sent exceeds this instance's blocking_timeout.
@@ -1119,10 +1278,10 @@ class RandomOrgClient(object):
         number of singleton tickets for this API key has been reached.
         
         Raises a ValueError on RANDOM.ORG Errors, error descriptions:
-        https://api.random.org/json-rpc/3/error-codes
+        https://api.random.org/json-rpc/4/error-codes
         
         Raises a RuntimeError on JSON-RPC Errors, error descriptions:
-        https://api.random.org/json-rpc/3/error-codes
+        https://api.random.org/json-rpc/4/error-codes
         
         Can also raise connection errors as described here:
         http://docs.python-requests.org/en/v2.0-0/user/quickstart/#errors-and-exceptions
@@ -1150,6 +1309,26 @@ class RandomOrgClient(object):
             Must be an integer with the value 2, 8, 10 or 16. For multiform
             sequences the values may be an array of length n with values 
             taken from the same set.
+        pregenerated_randomization -- Allows the client to specify that 
+            the random values should be generated from a pregenerated, 
+            historical randomization instead of a one-time on-the-fly 
+            randomization. There are three possible cases:
+            - null: the standard way of calling for random values, i.e.
+              true randomness is generated and discarded afterwards
+            - date: RANDOM.ORG uses historical true randomness generated 
+              on the corresponding date (past or present, format: 
+              { "date": "YYYY-MM-DD" })
+            - id: RANDOM.ORG uses historical true randomness derived 
+              from the corresponding identifier in a deterministic 
+              manner. Format: { "id": "PERSISTENT-IDENTIFIER" } where
+              "PERSISTENT-IDENTIFIER" is a string with length in the 
+              [1,64] range
+        license_data -- Allows the caller to include data of relevance to 
+            the license that is associated with the API Key.This is mandatory
+            for API Keys with the license type "Flexible Gambling" and follows
+            the format { "maxPayout": { "currency": "XTS", "amount": 0.0 } }. 
+            This information is used in licensing requested random values and 
+            in billing. The currently supported currencies are: "USD".
         user_data -- Contains an optional object that will be included 
             in unmodified form in the signed response along with the 
             random data. If an object is present, its maximum size in 
@@ -1162,14 +1341,18 @@ class RandomOrgClient(object):
         
         params = { 'apiKey':self._api_key, 'n':n, 'length':length, 'min':min,
                   'max':max, 'replacement':replacement, 'base':base, 
-                  'userData':user_data, 'ticketId':ticket_id }
+                  'pregeneratedRandomization':pregenerated_randomization, 
+                  'licenseData':license_data, 'userData':user_data, 
+                  'ticketId':ticket_id }
         request = self._generate_request(_SIGNED_INTEGER_SEQUENCES_METHOD, params)
         response = self._send_request(request)
         return self._extract_signed_response(response, self._extract_int_sequences, 
                                              base == 10)
     
     def generate_signed_decimal_fractions(self, n, decimal_places, 
-                                          replacement=True, user_data=None, 
+                                          replacement=True, 
+                                          pregenerated_randomization=None, 
+                                          license_data=None, user_data=None, 
                                           ticket_id=None):
         """
         Generate digitally signed random decimal fractions.
@@ -1180,7 +1363,7 @@ class RandomOrgClient(object):
         a dictionary object with the parsed decimal fraction list 
         mapped to 'data', the original response mapped to 'random', and
         the response's signature mapped to 'signature'. See:
-        https://api.random.org/json-rpc/3/signed#generateSignedDecimalFractions
+        https://api.random.org/json-rpc/4/signed#generateSignedDecimalFractions
         
         Raises a RandomOrgSendTimeoutError if time spent waiting before
         request is sent exceeds this instance's blocking_timeout.
@@ -1216,10 +1399,10 @@ class RandomOrgClient(object):
         number of singleton tickets for this API key has been reached.
         
         Raises a ValueError on RANDOM.ORG Errors, error descriptions:
-        https://api.random.org/json-rpc/3/error-codes
+        https://api.random.org/json-rpc/4/error-codes
         
         Raises a RuntimeError on JSON-RPC Errors, error descriptions:
-        https://api.random.org/json-rpc/3/error-codes
+        https://api.random.org/json-rpc/4/error-codes
         
         Can also raise connection errors as described here:
         http://docs.python-requests.org/en/v2.0-0/user/quickstart/#errors-and-exceptions
@@ -1234,6 +1417,26 @@ class RandomOrgClient(object):
             picked with replacement. If True the resulting numbers may 
             contain duplicate values, otherwise the numbers will all be
             unique (default True).
+        pregenerated_randomization -- Allows the client to specify that 
+            the random values should be generated from a pregenerated, 
+            historical randomization instead of a one-time on-the-fly 
+            randomization. There are three possible cases:
+            - null: the standard way of calling for random values, i.e.
+              true randomness is generated and discarded afterwards
+            - date: RANDOM.ORG uses historical true randomness generated 
+              on the corresponding date (past or present, format: 
+              { "date": "YYYY-MM-DD" })
+            - id: RANDOM.ORG uses historical true randomness derived 
+              from the corresponding identifier in a deterministic 
+              manner. Format: { "id": "PERSISTENT-IDENTIFIER" } where
+              "PERSISTENT-IDENTIFIER" is a string with length in the 
+              [1,64] range
+        license_data -- Allows the caller to include data of relevance to 
+            the license that is associated with the API Key.This is mandatory
+            for API Keys with the license type "Flexible Gambling" and follows
+            the format { "maxPayout": { "currency": "XTS", "amount": 0.0 } }. 
+            This information is used in licensing requested random values and 
+            in billing. The currently supported currencies are: "USD".
         user_data -- Contains an optional object that will be included 
             in unmodified form in the signed response along with the 
             random data. If an object is present, its maximum size in 
@@ -1246,13 +1449,17 @@ class RandomOrgClient(object):
         
         params = { 'apiKey':self._api_key, 'n':n, 
                    'decimalPlaces':decimal_places, 'replacement':replacement,
-                   'userData':user_data, 'ticketId':ticket_id }
+                   'pregeneratedRandomization':pregenerated_randomization, 
+                   'licenseData':license_data, 'userData':user_data, 
+                   'ticketId':ticket_id }
         request = self._generate_request(_SIGNED_DECIMAL_FRACTION_METHOD, params)
         response = self._send_request(request)
         return self._extract_signed_response(response, self._extract_doubles)
     
     def generate_signed_gaussians(self, n, mean, standard_deviation, 
-                                  significant_digits, user_data=None, 
+                                  significant_digits, 
+                                  pregenerated_randomization=None, 
+                                  license_data=None, user_data=None, 
                                   ticket_id=None):
         """
         Generate digitally signed random numbers.
@@ -1264,7 +1471,7 @@ class RandomOrgClient(object):
         dictionary object with the parsed random number list mapped to
         'data', the original response mapped to 'random', and the 
         response's signature mapped to 'signature'. See:
-        https://api.random.org/json-rpc/3/signed#generateSignedGaussians
+        https://api.random.org/json-rpc/4/signed#generateSignedGaussians
         
         Raises a RandomOrgSendTimeoutError if time spent waiting before
         request is sent exceeds this instance's blocking_timeout.
@@ -1300,10 +1507,10 @@ class RandomOrgClient(object):
         number of singleton tickets for this API key has been reached.
         
         Raises a ValueError on RANDOM.ORG Errors, error descriptions:
-        https://api.random.org/json-rpc/3/error-codes
+        https://api.random.org/json-rpc/4/error-codes
         
         Raises a RuntimeError on JSON-RPC Errors, error descriptions:
-        https://api.random.org/json-rpc/3/error-codes
+        https://api.random.org/json-rpc/4/error-codes
         
         Can also raise connection errors as described here:
         http://docs.python-requests.org/en/v2.0-0/user/quickstart/#errors-and-exceptions
@@ -1318,6 +1525,26 @@ class RandomOrgClient(object):
             Must be within the [-1e6,1e6] range.
         significant_digits -- The number of significant digits to use. 
             Must be within the [2,20] range.
+        pregenerated_randomization -- Allows the client to specify that 
+            the random values should be generated from a pregenerated, 
+            historical randomization instead of a one-time on-the-fly 
+            randomization. There are three possible cases:
+            - null: the standard way of calling for random values, i.e.
+              true randomness is generated and discarded afterwards
+            - date: RANDOM.ORG uses historical true randomness generated 
+              on the corresponding date (past or present, format: 
+              { "date": "YYYY-MM-DD" })
+            - id: RANDOM.ORG uses historical true randomness derived 
+              from the corresponding identifier in a deterministic 
+              manner. Format: { "id": "PERSISTENT-IDENTIFIER" } where
+              "PERSISTENT-IDENTIFIER" is a string with length in the 
+              [1,64] range
+        license_data -- Allows the caller to include data of relevance to 
+            the license that is associated with the API Key.This is mandatory
+            for API Keys with the license type "Flexible Gambling" and follows
+            the format { "maxPayout": { "currency": "XTS", "amount": 0.0 } }. 
+            This information is used in licensing requested random values and 
+            in billing. The currently supported currencies are: "USD".
         user_data -- Contains an optional object that will be included 
             in unmodified form in the signed response along with the 
             random data. If an object is present, its maximum size in 
@@ -1330,14 +1557,18 @@ class RandomOrgClient(object):
         
         params = { 'apiKey':self._api_key, 'n':n, 'mean':mean,
                    'standardDeviation':standard_deviation, 
-                   'significantDigits':significant_digits,
-                   'userData':user_data, 'ticketId':ticket_id }
+                   'significantDigits':significant_digits, 
+                   'pregeneratedRandomization':pregenerated_randomization, 
+                   'licenseData':license_data, 'userData':user_data, 
+                   'ticketId':ticket_id }
         request = self._generate_request(_SIGNED_GAUSSIAN_METHOD, params)
         response = self._send_request(request)
         return self._extract_signed_response(response, self._extract_doubles)
     
     def generate_signed_strings(self, n, length, characters, 
-                                replacement=True, user_data=None, 
+                                replacement=True, 
+                                pregenerated_randomization=None, 
+                                license_data=None, user_data=None, 
                                 ticket_id=None):
         """
         Generate digitally signed random strings.
@@ -1346,7 +1577,7 @@ class RandomOrgClient(object):
         Returns a dictionary object with the parsed random string list 
         mapped to 'data', the original response mapped to 'random', and
         the response's signature mapped to 'signature'. See:
-        https://api.random.org/json-rpc/3/signed#generateSignedStrings
+        https://api.random.org/json-rpc/4/signed#generateSignedStrings
         
         Raises a RandomOrgSendTimeoutError if time spent waiting before
         request is sent exceeds this instance's blocking_timeout.
@@ -1382,10 +1613,10 @@ class RandomOrgClient(object):
         number of singleton tickets for this API key has been reached.
         
         Raises a ValueError on RANDOM.ORG Errors, error descriptions:
-        https://api.random.org/json-rpc/3/error-codes
+        https://api.random.org/json-rpc/4/error-codes
         
         Raises a RuntimeError on JSON-RPC Errors, error descriptions:
-        https://api.random.org/json-rpc/3/error-codes
+        https://api.random.org/json-rpc/4/error-codes
         
         Can also raise connection errors as described here:
         http://docs.python-requests.org/en/v2.0-0/user/quickstart/#errors-and-exceptions
@@ -1403,6 +1634,26 @@ class RandomOrgClient(object):
             picked with replacement. If True the resulting list of 
             strings may contain duplicates, otherwise the strings will 
             all be unique (default True).
+        pregenerated_randomization -- Allows the client to specify that 
+            the random values should be generated from a pregenerated, 
+            historical randomization instead of a one-time on-the-fly 
+            randomization. There are three possible cases:
+            - null: the standard way of calling for random values, i.e.
+              true randomness is generated and discarded afterwards
+            - date: RANDOM.ORG uses historical true randomness generated 
+              on the corresponding date (past or present, format: 
+              { "date": "YYYY-MM-DD" })
+            - id: RANDOM.ORG uses historical true randomness derived 
+              from the corresponding identifier in a deterministic 
+              manner. Format: { "id": "PERSISTENT-IDENTIFIER" } where
+              "PERSISTENT-IDENTIFIER" is a string with length in the 
+              [1,64] range
+        license_data -- Allows the caller to include data of relevance to 
+            the license that is associated with the API Key.This is mandatory
+            for API Keys with the license type "Flexible Gambling" and follows
+            the format { "maxPayout": { "currency": "XTS", "amount": 0.0 } }. 
+            This information is used in licensing requested random values and 
+            in billing. The currently supported currencies are: "USD".
         user_data -- Contains an optional object that will be included 
             in unmodified form in the signed response along with the 
             random data. If an object is present, its maximum size in 
@@ -1414,13 +1665,17 @@ class RandomOrgClient(object):
         """
         
         params = { 'apiKey':self._api_key, 'n':n, 'length':length, 
-                   'characters':characters, 'replacement':replacement,
-                   'userData':user_data, 'ticketId':ticket_id }
+                   'characters':characters, 'replacement':replacement, 
+                   'pregeneratedRandomization':pregenerated_randomization, 
+                   'licenseData':license_data, 'userData':user_data, 
+                   'ticketId':ticket_id }
         request = self._generate_request(_SIGNED_STRING_METHOD, params)
         response = self._send_request(request)
         return self._extract_signed_response(response, self._extract_strings)
     
-    def generate_signed_UUIDs(self, n, user_data=None, ticket_id=None):
+    def generate_signed_UUIDs(self, n, pregenerated_randomization=None, 
+                              license_data=None, user_data=None, 
+                              ticket_id=None):
         """
         Generate digitally signed random UUIDs.
         
@@ -1430,7 +1685,7 @@ class RandomOrgClient(object):
         parsed random UUID list mapped to 'data', the original response
         mapped to 'random', and the response's signature mapped to 
         'signature'. See:
-        https://api.random.org/json-rpc/3/signed#generateSignedUUIDs
+        https://api.random.org/json-rpc/4/signed#generateSignedUUIDs
         
         Raises a RandomOrgSendTimeoutError if time spent waiting before
         request is sent exceeds this instance's blocking_timeout.
@@ -1466,10 +1721,10 @@ class RandomOrgClient(object):
         number of singleton tickets for this API key has been reached.
         
         Raises a ValueError on RANDOM.ORG Errors, error descriptions:
-        https://api.random.org/json-rpc/3/error-codes
+        https://api.random.org/json-rpc/4/error-codes
         
         Raises a RuntimeError on JSON-RPC Errors, error descriptions:
-        https://api.random.org/json-rpc/3/error-codes
+        https://api.random.org/json-rpc/4/error-codes
         
         Can also raise connection errors as described here:
         http://docs.python-requests.org/en/v2.0-0/user/quickstart/#errors-and-exceptions
@@ -1478,6 +1733,26 @@ class RandomOrgClient(object):
         
         n -- How many random UUIDs you need. Must be within the [1,1e3]
             range.
+        pregenerated_randomization -- Allows the client to specify that 
+            the random values should be generated from a pregenerated, 
+            historical randomization instead of a one-time on-the-fly 
+            randomization. There are three possible cases:
+            - null: the standard way of calling for random values, i.e.
+              true randomness is generated and discarded afterwards
+            - date: RANDOM.ORG uses historical true randomness generated 
+              on the corresponding date (past or present, format: 
+              { "date": "YYYY-MM-DD" })
+            - id: RANDOM.ORG uses historical true randomness derived 
+              from the corresponding identifier in a deterministic 
+              manner. Format: { "id": "PERSISTENT-IDENTIFIER" } where
+              "PERSISTENT-IDENTIFIER" is a string with length in the 
+              [1,64] range
+        license_data -- Allows the caller to include data of relevance to 
+            the license that is associated with the API Key.This is mandatory
+            for API Keys with the license type "Flexible Gambling" and follows
+            the format { "maxPayout": { "currency": "XTS", "amount": 0.0 } }. 
+            This information is used in licensing requested random values and 
+            in billing. The currently supported currencies are: "USD".
         user_data -- Contains an optional object that will be included 
             in unmodified form in the signed response along with the 
             random data. If an object is present, its maximum size in 
@@ -1488,14 +1763,18 @@ class RandomOrgClient(object):
             the requested random values. Each ticket can only be used once.
         """
         
-        params = { 'apiKey':self._api_key, 'n':n, 'userData':user_data, 
+        params = { 'apiKey':self._api_key, 'n':n, 
+                  'pregeneratedRandomization':pregenerated_randomization, 
+                  'licenseData':license_data, 'userData':user_data, 
                   'ticketId':ticket_id }
         request = self._generate_request(_SIGNED_UUID_METHOD, params)
         response = self._send_request(request)
         return self._extract_signed_response(response, self._extract_UUIDs)
     
     def generate_signed_blobs(self, n, size, format=_BLOB_FORMAT_BASE64, 
-                              user_data=None, ticket_id=None):
+                              pregenerated_randomization=None, 
+                              license_data=None, user_data=None, 
+                              ticket_id=None):
         """
         Generate digitally signed random BLOBs.
         
@@ -1504,7 +1783,7 @@ class RandomOrgClient(object):
         dictionary object with the parsed random BLOB list mapped to 
         'data', the original response mapped to 'random', and the 
         response's signature mapped to 'signature'. See:
-        https://api.random.org/json-rpc/3/signed#generateSignedBlobs
+        https://api.random.org/json-rpc/4/signed#generateSignedBlobs
         
         Raises a RandomOrgSendTimeoutError if time spent waiting before
         request is sent exceeds this instance's blocking_timeout.
@@ -1540,10 +1819,10 @@ class RandomOrgClient(object):
         number of singleton tickets for this API key has been reached.
         
         Raises a ValueError on RANDOM.ORG Errors, error descriptions:
-        https://api.random.org/json-rpc/3/error-codes
+        https://api.random.org/json-rpc/4/error-codes
         
         Raises a RuntimeError on JSON-RPC Errors, error descriptions:
-        https://api.random.org/json-rpc/3/error-codes
+        https://api.random.org/json-rpc/4/error-codes
         
         Can also raise connection errors as described here:
         http://docs.python-requests.org/en/v2.0-0/user/quickstart/#errors-and-exceptions
@@ -1557,6 +1836,26 @@ class RandomOrgClient(object):
         format -- Specifies the format in which the blobs will be 
             returned. Values allowed are _BLOB_FORMAT_BASE64 and 
             _BLOB_FORMAT_HEX (default _BLOB_FORMAT_BASE64).
+        pregenerated_randomization -- Allows the client to specify that 
+            the random values should be generated from a pregenerated, 
+            historical randomization instead of a one-time on-the-fly 
+            randomization. There are three possible cases:
+            - null: the standard way of calling for random values, i.e.
+              true randomness is generated and discarded afterwards
+            - date: RANDOM.ORG uses historical true randomness generated 
+              on the corresponding date (past or present, format: 
+              { "date": "YYYY-MM-DD" })
+            - id: RANDOM.ORG uses historical true randomness derived 
+              from the corresponding identifier in a deterministic 
+              manner. Format: { "id": "PERSISTENT-IDENTIFIER" } where
+              "PERSISTENT-IDENTIFIER" is a string with length in the 
+              [1,64] range
+        license_data -- Allows the caller to include data of relevance to 
+            the license that is associated with the API Key.This is mandatory
+            for API Keys with the license type "Flexible Gambling" and follows
+            the format { "maxPayout": { "currency": "XTS", "amount": 0.0 } }. 
+            This information is used in licensing requested random values and 
+            in billing. The currently supported currencies are: "USD".
         user_data -- Contains an optional object that will be included 
             in unmodified form in the signed response along with the 
             random data. If an object is present, its maximum size in 
@@ -1568,7 +1867,9 @@ class RandomOrgClient(object):
         """
         
         params = { 'apiKey':self._api_key, 'n':n, 'size':size, 
-                  'format':format, 'userData':user_data, 
+                  'format':format, 
+                  'pregeneratedRandomization':pregenerated_randomization, 
+                  'licenseData':license_data, 'userData':user_data, 
                   'ticketId':ticket_id }
         request = self._generate_request(_SIGNED_BLOB_METHOD, params)
         response = self._send_request(request)
@@ -1580,7 +1881,7 @@ class RandomOrgClient(object):
         
         Retrieve results generated using signed methods within the last 
         24 hours using its serialNumber. See:
-        https://api.random.org/json-rpc/3/signed#getResult  
+        https://api.random.org/json-rpc/4/signed#getResult  
         
         Raises a RandomOrgSendTimeoutError if time spent waiting before
         request is sent exceeds this instance's blocking_timeout.
@@ -1604,10 +1905,10 @@ class RandomOrgClient(object):
         valid for the version of the API invoked.
         
         Raises a ValueError on RANDOM.ORG Errors, error descriptions:
-        https://api.random.org/json-rpc/3/error-codes
+        https://api.random.org/json-rpc/4/error-codes
         
         Raises a RuntimeError on JSON-RPC Errors, error descriptions:
-        https://api.random.org/json-rpc/3/error-codes
+        https://api.random.org/json-rpc/4/error-codes
         
         Can also raise connection errors as described here:
         http://docs.python-requests.org/en/v2.0-0/user/quickstart/#errors-and-exceptions
@@ -1628,7 +1929,7 @@ class RandomOrgClient(object):
         
         This method creates a number of tickets. The tickets can be 
         used in one of the methods that generate random values. See:
-        https://api.random.org/json-rpc/3/signed#createTickets
+        https://api.random.org/json-rpc/4/signed#createTickets
         
         Raises a RandomOrgSendTimeoutError if time spent waiting before
         request is sent exceeds this instance's blocking_timeout.
@@ -1652,10 +1953,10 @@ class RandomOrgClient(object):
         valid for the version of the API invoked.
         
         Raises a ValueError on RANDOM.ORG Errors, error descriptions:
-        https://api.random.org/json-rpc/3/error-codes
+        https://api.random.org/json-rpc/4/error-codes
         
         Raises a RuntimeError on JSON-RPC Errors, error descriptions:
-        https://api.random.org/json-rpc/3/error-codes
+        https://api.random.org/json-rpc/4/error-codes
         
         Can also raise connection errors as described here:
         http://docs.python-requests.org/en/v2.0-0/user/quickstart/#errors-and-exceptions
@@ -1682,7 +1983,7 @@ class RandomOrgClient(object):
         
         This method obtains information about tickets that exist 
         for a given API key. See:
-        https://api.random.org/json-rpc/3/signed#listTickets
+        https://api.random.org/json-rpc/4/signed#listTickets
         
         Raises a RandomOrgSendTimeoutError if time spent waiting before
         request is sent exceeds this instance's blocking_timeout.
@@ -1706,10 +2007,10 @@ class RandomOrgClient(object):
         valid for the version of the API invoked.
         
         Raises a ValueError on RANDOM.ORG Errors, error descriptions:
-        https://api.random.org/json-rpc/3/error-codes
+        https://api.random.org/json-rpc/4/error-codes
         
         Raises a RuntimeError on JSON-RPC Errors, error descriptions:
-        https://api.random.org/json-rpc/3/error-codes
+        https://api.random.org/json-rpc/4/error-codes
         
         Can also raise connection errors as described here:
         http://docs.python-requests.org/en/v2.0-0/user/quickstart/#errors-and-exceptions
@@ -1736,7 +2037,7 @@ class RandomOrgClient(object):
         This method obtains information about a single ticket. If
         the ticket has showResult set to true and has been used, 
         get ticket will return the values generated. See:
-        https://api.random.org/json-rpc/3/signed#getTicket
+        https://api.random.org/json-rpc/4/signed#getTicket
         
         Raises a RandomOrgSendTimeoutError if time spent waiting before
         request is sent exceeds this instance's blocking_timeout.
@@ -1759,11 +2060,14 @@ class RandomOrgClient(object):
         Raises a RandomOrgKeyInvalidVersionError if this API key is not 
         valid for the version of the API invoked.
         
+        Raises a RandomOrgTicketNonExistentError if the ticket used 
+        does not exist.
+        
         Raises a ValueError on RANDOM.ORG Errors, error descriptions:
-        https://api.random.org/json-rpc/3/error-codes
+        https://api.random.org/json-rpc/4/error-codes
         
         Raises a RuntimeError on JSON-RPC Errors, error descriptions:
-        https://api.random.org/json-rpc/3/error-codes
+        https://api.random.org/json-rpc/4/error-codes
         
         Can also raise connection errors as described here:
         http://docs.python-requests.org/en/v2.0-0/user/quickstart/#errors-and-exceptions
@@ -1781,7 +2085,7 @@ class RandomOrgClient(object):
     
     
     # Signature verification for signed methods, see:
-    # https://api.random.org/json-rpc/3/signed
+    # https://api.random.org/json-rpc/4/signed
     
     def verify_signature(self, random, signature):
         """
@@ -1791,7 +2095,7 @@ class RandomOrgClient(object):
         of the methods in the Signed API with the server. This is used
         to examine the authenticity of numbers. Return True on 
         verification success. See:
-        https://api.random.org/json-rpc/3/signed#verifySignature
+        https://api.random.org/json-rpc/4/signed#verifySignature
         
         Raises a RandomOrgSendTimeoutError if time spent waiting before
         request is sent exceeds this instance's blocking_timeout.
@@ -1815,10 +2119,10 @@ class RandomOrgClient(object):
         valid for the version of the API invoked.
         
         Raises a ValueError on RANDOM.ORG Errors, error descriptions:
-        https://api.random.org/json-rpc/3/error-codes
+        https://api.random.org/json-rpc/4/error-codes
         
         Raises a RuntimeError on JSON-RPC Errors, error descriptions:
-        https://api.random.org/json-rpc/3/error-codes
+        https://api.random.org/json-rpc/4/error-codes
         
         Can also raise connection errors as described here:
         http://docs.python-requests.org/en/v2.0-0/user/quickstart/#errors-and-exceptions
@@ -1831,16 +2135,96 @@ class RandomOrgClient(object):
         the random field originates from.
         """
         
-        # Ensuring that ticketData is in the correct order for 
-        # Release 3 and older versions of Python where dictionaries
-        # are not ordered
-        if sys.version_info[0] < 3.6:
-            random = self._order_ticket_data(random)
         params = { 'random':random, 'signature':signature }
         request = self._generate_request(_VERIFY_SIGNATURE_METHOD, params)
         response = self._send_request(request)
         return self._extract_verification_response(response)
+        
+    def create_url(self, random, signature):
+        """
+        Create the URL for the signature verification page of a signed
+        response.
+        
+        Create the URL for the signature verification page of a response
+        previously received from one of the methods in the Signed API with
+        the server. The web-page accessible from this URL will contain the
+        details of the response used in this method, provided that the
+        signature can be verified. This URL is also shown under "Show
+        Technical Details" when the online Signature Verification Form is
+        used to validate a signature. See:
+        https://api.random.org/signatures/form
+        
+        Please note that, when using Python 2.7, the URL generated by this
+        method may differ from that shown when using the online Signature
+        Verification Form. This is because dictionaries in Python 2.7 are
+        not ordered and the encoded string will reflect this. The URL will
+        still work as expected.
+        
+        Raises a ValueError when the length of the generated URL exceeds
+        the maximum length allowed (2,046 characters). The random object
+        may be too large, i.e., too many random values were requested.
+        
+        Keyword arguments:
+        
+        random -- The random field from a response returned by 
+        RANDOM.ORG through one of the Signed API methods.
+        signature -- The signature field from the same response that 
+        the random field originates from.
+        """
+        # ensure that input is formatted correctly and is url-safe
+        random = self._url_formatting(random, True)
+        signature = self._url_formatting(signature)
     
+        # create full url
+        url = 'https://api.random.org/signatures/form?format=json'   
+        url += '&random=' + random
+        url += '&signature=' + signature
+    
+        # throw an error is the maximum length allowed (2,046 characters)
+        # is exceeded
+        if len(url) > 2046:
+            return ValueError('Error: URL exceeds maximum length (2,046 characters).')
+        
+        return url    
+    
+    def create_html(self, random, signature):
+        """
+        Create the HTML form for the signature verification page of a signed
+        response.
+        
+        Create the HTML form for the signature verification page of a response
+        previously received from one of the methods in the Signed API with
+        the server. The web-page accessible from the "Validate" button created
+        will contain the details of the response used in this method, provided
+        that the signature can be verified. The same HTML form is also shown
+        under "Show Technical Details" when the online Signature Verification
+        Form is used to validate a signature. See:
+        https://api.random.org/signatures/form
+        
+        Please note that, when using Python 2.7, the HTML form generated by
+        this method may differ from that shown when using the online Signature
+        Verification Form. This is because dictionaries in Python 2.7 are
+        not ordered and the "random" input field will reflect this. The form
+        will still work as expected.
+        
+        Keyword arguments:
+        
+        random -- The random field from a response returned by 
+        RANDOM.ORG through one of the Signed API methods.
+        signature -- The signature field from the same response that 
+        the random field originates from.
+        """
+        # if necessary, turn the random object (dict) into a string
+        if isinstance(random, dict):
+            random = json.dumps(random)
+    
+        s = '<form action=\'https://api.random.org/signatures/form\' method=\'post\'>\n'
+        s += '  ' + self._input_html('hidden', 'format', 'json') + '\n'
+        s += '  ' + self._input_html('hidden', 'random', str(random)) + '\n'
+        s += '  ' + self._input_html('hidden', 'signature', signature) + '\n'
+        s += '  <input type=\'submit\' value=\'Validate\' />\n</form>'
+    
+        return s
     
     # Methods used to create a cache for any given randomness request.
     
@@ -2196,10 +2580,10 @@ class RandomOrgClient(object):
         server bits allowance has been exceeded.
         
         Raises a ValueError on RANDOM.ORG Errors, error descriptions:
-        https://api.random.org/json-rpc/3/error-codes
+        https://api.random.org/json-rpc/4/error-codes
         
         Raises a RuntimeError on JSON-RPC Errors, error descriptions:
-        https://api.random.org/json-rpc/3/error-codes
+        https://api.random.org/json-rpc/4/error-codes
         
         Can also raise connection errors as described here:
         http://docs.python-requests.org/en/v2.0-0/user/quickstart/#errors-and-exceptions
@@ -2244,10 +2628,10 @@ class RandomOrgClient(object):
         server bits allowance has been exceeded.
         
         Raises a ValueError on RANDOM.ORG Errors, error descriptions:
-        https://api.random.org/json-rpc/3/error-codes
+        https://api.random.org/json-rpc/4/error-codes
         
         Raises a RuntimeError on JSON-RPC Errors, error descriptions:
-        https://api.random.org/json-rpc/3/error-codes
+        https://api.random.org/json-rpc/4/error-codes
         
         Can also raise connection errors as described here:
         http://docs.python-requests.org/en/v2.0-0/user/quickstart/#errors-and-exceptions
@@ -2379,7 +2763,7 @@ class RandomOrgClient(object):
             time.sleep(wait)
         
         # Send the request & parse the response.
-        response = requests.post('https://api.random.org/json-rpc/3/invoke',
+        response = requests.post('https://api.random.org/json-rpc/4/invoke',
                                  data=json.dumps(request), 
                                  headers={'content-type': 'application/json'},
                                  timeout=self._http_timeout)
@@ -2390,21 +2774,21 @@ class RandomOrgClient(object):
             message = data['error']['message']
             
             # RuntimeError, error codes listed under JSON-RPC Errors:
-            # https://api.random.org/json-rpc/3/error-codes
+            # https://api.random.org/json-rpc/4/error-codes
             if code in ([-32700] + list(range(-32603,-32600)) 
                         + list(range(-32099,-32000))):                
                 return { 'exception': RuntimeError('Error ' + str(code) 
                                                    + ': ' + message) }
             
             # RandomOrgKeyNonExistentError, API key does not exist, from 
-            # RANDOM.ORG Errors: https://api.random.org/json-rpc/3/error-codes
+            # RANDOM.ORG Errors: https://api.random.org/json-rpc/4/error-codes
             elif code == 400:
                 return { 'exception': 
                         RandomOrgKeyNonExistentError('Error ' + str(code) 
                                                     + ': ' + message) }
             
             # RandomOrgKeyNotRunningError, API key not running, from 
-            # RANDOM.ORG Errors: https://api.random.org/json-rpc/3/error-codes
+            # RANDOM.ORG Errors: https://api.random.org/json-rpc/4/error-codes
             elif code == 401:
                 return { 'exception': 
                         RandomOrgKeyNotRunningError('Error ' + str(code) 
@@ -2412,7 +2796,7 @@ class RandomOrgClient(object):
                 
             # RandomOrgInsufficientRequestsError, requests allowance 
             # exceeded, backoff until midnight UTC, from RANDOM.ORG 
-            # Errors: https://api.random.org/json-rpc/3/error-codes
+            # Errors: https://api.random.org/json-rpc/4/error-codes
             elif code == 402:
                 self._backoff = datetime.utcnow().replace(day=datetime.utcnow().day+1, hour=0, 
                                                           minute=0, second=0, microsecond=0)
@@ -2421,7 +2805,7 @@ class RandomOrgClient(object):
                         RandomOrgInsufficientRequestsError(self._backoff_error) }
             
             # RandomOrgInsufficientBitsError, bits allowance exceeded,
-            # from RANDOM.ORG Errors: https://api.random.org/json-rpc/3/error-codes
+            # from RANDOM.ORG Errors: https://api.random.org/json-rpc/4/error-codes
             elif code == 403:
                 return { 'exception': 
                         RandomOrgInsufficientBitsError('Error ' + str(code) 
@@ -2429,7 +2813,7 @@ class RandomOrgClient(object):
             
             # RandomOrgKeyInvalidAccessError, key is not valid for method 
             # requested, from RANDOM.ORG Errors: 
-            # https://api.random.org/json-rpc/3/error-codes
+            # https://api.random.org/json-rpc/4/error-codes
             elif code == 404:
                 return { 'exception':
                         RandomOrgKeyInvalidAccessError('Error ' + str(code) 
@@ -2437,7 +2821,7 @@ class RandomOrgClient(object):
             
             # RandomOrgKeyInvalidVersionError, key is not valid for the 
             # version of the API you are invoking, from RANDOM.ORG Errors: 
-            # https://api.random.org/json-rpc/3/error-codes
+            # https://api.random.org/json-rpc/4/error-codes
             elif code == 405:
                 return { 'exception':
                         RandomOrgKeyInvalidVersionError('Error' + str(code) 
@@ -2445,7 +2829,7 @@ class RandomOrgClient(object):
             
             # RandomOrgTicketNonExistentError, the ticket specified does
             # not exist, from RANDOM.ORG Errors: 
-            # https://api.random.org/json-rpc/3/error-codes 
+            # https://api.random.org/json-rpc/4/error-codes 
             elif code == 420:
                 return { 'exception':
                         RandomOrgTicketNonExistentError('Error' + str(code) 
@@ -2454,7 +2838,7 @@ class RandomOrgClient(object):
             # RandomOrgTicketAPIKeyMismatchError, the ticket specified 
             # exists but is not for the API key you specified, 
             # from RANDOM.ORG Errors: 
-            # https://api.random.org/json-rpc/3/error-codes
+            # https://api.random.org/json-rpc/4/error-codes
             elif code == 421:
                 return { 'exception':
                         RandomOrgTicketAPIKeyMismatchError('Error' + str(code) 
@@ -2462,7 +2846,7 @@ class RandomOrgClient(object):
             
             # RandomOrgTicketAlreadyUsedError, the ticket specified has 
             # already been used, from RANDOM.ORG Errors: 
-            # https://api.random.org/json-rpc/3/error-codes
+            # https://api.random.org/json-rpc/4/error-codes
             elif code == 422:
                 return { 'exception':
                         RandomOrgTicketAlreadyUsedError('Error' + str(code) 
@@ -2471,16 +2855,36 @@ class RandomOrgClient(object):
             # RandomOrgTooManySingletonTicketsError, the maximum number 
             # of singleton tickets available for your API key has been 
             # reached, from RANDOM.ORG Errors: 
-            # https://api.random.org/json-rpc/3/error-codes
+            # https://api.random.org/json-rpc/4/error-codes
             elif code == 423:
                 return { 'exception':
                         RandomOrgTooManySingletonTicketsError('Error' 
                                                               + str(code) 
                                                               + ': '
                                                               + message)}
+    
+            # RandomOrgLicenseDataRequiredError, your API key requires the 
+            # license_data parameter be used, from RANDOM.ORG Errors:
+            # https://api.random.org/json-rpc/4/error-codes
+            elif code == 424:
+                return { 'exception':
+                        RandomOrgLicenseDataRequiredError('Error' 
+                                                          + str(code) 
+                                                          + ': ' + message)}
             
+            # RandomOrgLicenseDataNotAllowedError, your API key does not 
+            # support the use of the license_data parameter, 
+            # from RANDOM.ORG Errors: 
+            # https://api.random.org/json-rpc/4/error-codes
+            elif code == 425:
+                return { 'exception':
+                        RandomOrgLicenseDataNotAllowedError('Error' 
+                                                            + str(code) 
+                                                            + ': ' 
+                                                            + message)}
+             
             # ValueError, error codes listed under RANDOM.ORG Errors:
-            # https://api.random.org/json-rpc/3/error-codes
+            # https://api.random.org/json-rpc/4/error-codes
             else:
                 return { 'exception': ValueError('Error ' + str(code) 
                                                  + ': ' + message) }
@@ -2567,7 +2971,7 @@ class RandomOrgClient(object):
         else: 
             return [list(rest) for rest 
                     in self._extract_response(response)]
-    
+        
     def _extract_doubles(self, response):
         # json to double list.
         return list(map(float, self._extract_response(response)))
@@ -2583,21 +2987,27 @@ class RandomOrgClient(object):
     def _extract_blobs(self, response):
         # json to blob list (no change).
         return self._extract_response(response)
-
-    def _order_ticket_data(self, random):
-        # orders the information in ticketData to ensure successful signature 
-        # verification for Python 2.7 (R3)
-        if random['ticketData'] is not None:
-            random_ordered = OrderedDict()
-            for key in random:
-                if key == 'ticketData':
-                    ticket_data = OrderedDict()
-                    ticket_data['ticketId'] = random['ticketData']['ticketId']
-                    ticket_data['previousTicketId'] = random['ticketData']['previousTicketId']
-                    ticket_data['nextTicketId'] = random['ticketData']['nextTicketId']
-                    random_ordered[key] = ticket_data
-                else:
-                    random_ordered[key] = random[key]
-            return random_ordered
-        else:
-            return random
+    
+    def _url_formatting(self, s, encode = False):
+        # adjust the formatting of elements used in url
+        if isinstance(s, dict):
+           s = json.dumps(s, separators=(',', ':'))
+        
+        if encode:
+           s = s.encode()    
+           s = base64.b64encode(s)
+           s = s.decode()
+    
+        # replace certain characters to make them url-safe
+        # (Percent-Encoding as described in RFC 3986 for PHP)
+        s = s.replace('=', '%3D')
+        s = s.replace('+', '%2B')
+        s = s.replace('/', '%2F')
+    
+        # return formatted string
+        return s
+    
+    def _input_html(self, type, name, value):
+        # helper function to create html code with input tags
+        return ('<input type=\'' + str(type) + '\' name=\'' + str(name)
+                + '\' value=\'' + str(value) + '\' />')

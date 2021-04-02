@@ -1,5 +1,5 @@
 """
-RANDOM.ORG JSON-RPC API (Release 3) implementation.
+RANDOM.ORG JSON-RPC API (Release 4) implementation.
 
 Usage:
 
@@ -44,11 +44,11 @@ are sent too frequently:
     [3, 5, 2, 4, 8]
 
 For a full list of available randomness generation functions see 
-rdoclient.py documentation and https://api.random.org/json-rpc/3
+rdoclient.py documentation and https://api.random.org/json-rpc/4
 """
 
 __title__ = 'rdoclient'
-__version__ = '1.3.1'
+__version__ = '1.4'
 __build__ = 0x010000
 __author__ = 'RANDOM.ORG'
 __license__ = 'MIT'

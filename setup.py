@@ -6,10 +6,10 @@ def read(fname):
 
 setup(
     name = "rdoclient",
-    version = "1.3.1",
+    version = "1.4",
     author = "RANDOM.ORG",
     author_email = "contact@random.org",
-    description = ("RANDOM.ORG JSON-RPC API (Release 3) implementation."),
+    description = ("RANDOM.ORG JSON-RPC API (Release 4) implementation."),
     license = "MIT",
     keywords = "RANDOM.ORG random client implementation",
     url = "https://www.random.org/",
@@ -20,7 +20,7 @@ setup(
         'six',
     ],
     project_urls={
-        "Documentation": "https://api.random.org/json-rpc/3",
+        "Documentation": "https://api.random.org/json-rpc/4",
         "Source Code": "https://github.com/RandomOrg/JSON-RPC-Python",
     },
     python_requires=">=2.7, !=3.0.*, !=3.1.*, !=3.2.*, !=3.3.*, !=3.4.*",

@@ -48,6 +48,7 @@ from collections import OrderedDict
 import base64
 import json
 import logging
+import re
 import threading
 import time
 import sys
@@ -2172,7 +2173,7 @@ class RandomOrgClient(object):
         the random field originates from.
         """
         # ensure that input is formatted correctly and is url-safe
-        random = self._url_formatting(random, True)
+        random = self._url_formatting(random)
         signature = self._url_formatting(signature)
     
         # create full url
@@ -2183,9 +2184,9 @@ class RandomOrgClient(object):
         # throw an error is the maximum length allowed (2,046 characters)
         # is exceeded
         if len(url) > 2046:
-            return ValueError('Error: URL exceeds maximum length (2,046 characters).')
+            raise ValueError('Error: URL exceeds maximum length (2,046 characters).')
         
-        return url    
+        return url
     
     def create_html(self, random, signature):
         """
@@ -2988,13 +2989,17 @@ class RandomOrgClient(object):
         # json to blob list (no change).
         return self._extract_response(response)
     
-    def _url_formatting(self, s, encode = False):
+    def _url_formatting(self, s):
         # adjust the formatting of elements used in url
         if isinstance(s, dict):
            s = json.dumps(s, separators=(',', ':'))
         
-        if encode:
-           s = s.encode()    
+        # check if the string is base64 encoded
+        b64_pattern = '^([A-Za-z0-9+/]{4})*([A-Za-z0-9+/]{3}=|[A-Za-z0-9+/]{2}==)?$'
+        is_b64 = re.search(b64_pattern, s)
+        
+        if not is_b64:
+           s = s.encode()
            s = base64.b64encode(s)
            s = s.decode()
     

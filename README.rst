@@ -1,7 +1,7 @@
 JSON-RPC-Python
 ===============
 
-RANDOM.ORG JSON-RPC API (Release 4) implementation.
+The official RANDOM.ORG JSON-RPC API (Release 4) implementation for Python 2 and 3.
 
 This is a Python implementation of the RANDOM.ORG JSON-RPC API (R4). It provides either serialized or unserialized access to both the signed and unsigned methods of the API through the RandomOrgClient class. It also provides a convenience class through the RandomOrgClient class, the RandomOrgCache, for precaching requests. In the context of this module, a serialized client is one for which the sequence of requests matches the sequence of responses.
 
@@ -72,6 +72,10 @@ Finally, it is possible to request live results as-soon-as-possible and without 
     >>> r = RandomOrgClient(YOUR_API_KEY_HERE, blocking_timeout=0.0, http_timeout=10.0, serialized=False)
     >>> r.generate_integers(5, 0, 10)
     [3, 5, 2, 4, 8]
+
+Signature Verification
+----------------------
+There are two additional methods to generate signature verification URLs and HTML forms (*create_url* and *create_html*) using the random object and signature returned from any of the signed (value generating) methods. The generated URLs and HTML forms link to the same web page that is also shown when a result is verified using the online `Signature Verification Form <https://api.random.org/signatures/form>`_.
 
 Documentation
 -------------

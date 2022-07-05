@@ -2592,7 +2592,7 @@ class RandomOrgClient(object):
         try:
             # Python 2.7
             if self._requests_left is None or \
-               time.clock() > (self._last_response_received_time 
+               time.process_time() > (self._last_response_received_time 
                                + _ALLOWANCE_STATE_REFRESH_SECONDS):
                 self._get_usage()
         except AttributeError:
@@ -2640,7 +2640,7 @@ class RandomOrgClient(object):
         try:
             # Python 2.7
             if self._bits_left is None or \
-            time.clock() > (self._last_response_received_time 
+            time.process_time() > (self._last_response_received_time 
                                    + _ALLOWANCE_STATE_REFRESH_SECONDS):
                 self._get_usage()
         except AttributeError:
@@ -2743,7 +2743,7 @@ class RandomOrgClient(object):
         self._advisory_delay_lock.acquire()
         try:
             # Python 2.7
-            wait = self._advisory_delay - (time.clock() 
+            wait = self._advisory_delay - (time.process_time() 
                                            - self._last_response_received_time)
         except AttributeError:
             # Python 3.3+
@@ -2913,7 +2913,7 @@ class RandomOrgClient(object):
         
         try:
             # Python 2.7
-            self._last_response_received_time = time.clock()
+            self._last_response_received_time = time.process_time()
         except AttributeError: 
             # Python 3.3+
             self._last_response_received_time = time.process_time()

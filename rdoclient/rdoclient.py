@@ -633,7 +633,7 @@ class RandomOrgClient(object):
         https://api.random.org/json-rpc/4/error-codes
         
         Can also raise connection errors as described here:
-        http://docs.python-requests.org/en/v2.0-0/user/quickstart/#errors-and-exceptions
+        https://requests.readthedocs.io/en/latest/api/#exceptions
         
         Keyword arguments:
         
@@ -710,7 +710,7 @@ class RandomOrgClient(object):
         https://api.random.org/json-rpc/4/error-codes
         
         Can also raise connection errors as described here:
-        http://docs.python-requests.org/en/v2.0-0/user/quickstart/#errors-and-exceptions
+        https://requests.readthedocs.io/en/latest/api/#exceptions
         
         Keyword arguments:
         
@@ -796,7 +796,7 @@ class RandomOrgClient(object):
         https://api.random.org/json-rpc/4/error-codes
         
         Can also raise connection errors as described here:
-        http://docs.python-requests.org/en/v2.0-0/user/quickstart/#errors-and-exceptions
+        https://requests.readthedocs.io/en/latest/api/#exceptions
         
         Keyword arguments:
         
@@ -870,7 +870,7 @@ class RandomOrgClient(object):
         https://api.random.org/json-rpc/4/error-codes
         
         Can also raise connection errors as described here:
-        http://docs.python-requests.org/en/v2.0-0/user/quickstart/#errors-and-exceptions
+        https://requests.readthedocs.io/en/latest/api/#exceptions
         
         Keyword arguments:
         
@@ -943,7 +943,7 @@ class RandomOrgClient(object):
         https://api.random.org/json-rpc/4/error-codes
         
         Can also raise connection errors as described here:
-        http://docs.python-requests.org/en/v2.0-0/user/quickstart/#errors-and-exceptions
+        https://requests.readthedocs.io/en/latest/api/#exceptions
         
         Keyword arguments:
         
@@ -1018,7 +1018,7 @@ class RandomOrgClient(object):
         https://api.random.org/json-rpc/4/error-codes
         
         Can also raise connection errors as described here:
-        http://docs.python-requests.org/en/v2.0-0/user/quickstart/#errors-and-exceptions
+        https://requests.readthedocs.io/en/latest/api/#exceptions
         
         Keyword arguments:
         
@@ -1084,7 +1084,7 @@ class RandomOrgClient(object):
         https://api.random.org/json-rpc/4/error-codes
         
         Can also raise connection errors as described here:
-        http://docs.python-requests.org/en/v2.0-0/user/quickstart/#errors-and-exceptions
+        https://requests.readthedocs.io/en/latest/api/#exceptions
         
         Keyword arguments:
         
@@ -1175,7 +1175,7 @@ class RandomOrgClient(object):
         https://api.random.org/json-rpc/4/error-codes
         
         Can also raise connection errors as described here:
-        http://docs.python-requests.org/en/v2.0-0/user/quickstart/#errors-and-exceptions
+        https://requests.readthedocs.io/en/latest/api/#exceptions
         
         Keyword arguments:
         
@@ -1285,7 +1285,7 @@ class RandomOrgClient(object):
         https://api.random.org/json-rpc/4/error-codes
         
         Can also raise connection errors as described here:
-        http://docs.python-requests.org/en/v2.0-0/user/quickstart/#errors-and-exceptions
+        https://requests.readthedocs.io/en/latest/api/#exceptions
         
         Keyword arguments:
         
@@ -1406,7 +1406,7 @@ class RandomOrgClient(object):
         https://api.random.org/json-rpc/4/error-codes
         
         Can also raise connection errors as described here:
-        http://docs.python-requests.org/en/v2.0-0/user/quickstart/#errors-and-exceptions
+        https://requests.readthedocs.io/en/latest/api/#exceptions
         
         Keyword arguments:
         
@@ -1514,7 +1514,7 @@ class RandomOrgClient(object):
         https://api.random.org/json-rpc/4/error-codes
         
         Can also raise connection errors as described here:
-        http://docs.python-requests.org/en/v2.0-0/user/quickstart/#errors-and-exceptions
+        https://requests.readthedocs.io/en/latest/api/#exceptions
         
         Keyword arguments:
         
@@ -1620,7 +1620,7 @@ class RandomOrgClient(object):
         https://api.random.org/json-rpc/4/error-codes
         
         Can also raise connection errors as described here:
-        http://docs.python-requests.org/en/v2.0-0/user/quickstart/#errors-and-exceptions
+        https://requests.readthedocs.io/en/latest/api/#exceptions
         
         Keyword arguments:
         
@@ -1728,7 +1728,7 @@ class RandomOrgClient(object):
         https://api.random.org/json-rpc/4/error-codes
         
         Can also raise connection errors as described here:
-        http://docs.python-requests.org/en/v2.0-0/user/quickstart/#errors-and-exceptions
+        https://requests.readthedocs.io/en/latest/api/#exceptions
         
         Keyword arguments:
         
@@ -1826,7 +1826,7 @@ class RandomOrgClient(object):
         https://api.random.org/json-rpc/4/error-codes
         
         Can also raise connection errors as described here:
-        http://docs.python-requests.org/en/v2.0-0/user/quickstart/#errors-and-exceptions
+        https://requests.readthedocs.io/en/latest/api/#exceptions
         
         Keyword arguments:
         
@@ -1912,7 +1912,7 @@ class RandomOrgClient(object):
         https://api.random.org/json-rpc/4/error-codes
         
         Can also raise connection errors as described here:
-        http://docs.python-requests.org/en/v2.0-0/user/quickstart/#errors-and-exceptions
+        https://requests.readthedocs.io/en/latest/api/#exceptions
         
         Keyword arguments:
         serial_number -- An integer containing the serial number 
@@ -1960,7 +1960,7 @@ class RandomOrgClient(object):
         https://api.random.org/json-rpc/4/error-codes
         
         Can also raise connection errors as described here:
-        http://docs.python-requests.org/en/v2.0-0/user/quickstart/#errors-and-exceptions
+        https://requests.readthedocs.io/en/latest/api/#exceptions
         
         Keyword arguments:
         
@@ -2014,7 +2014,7 @@ class RandomOrgClient(object):
         https://api.random.org/json-rpc/4/error-codes
         
         Can also raise connection errors as described here:
-        http://docs.python-requests.org/en/v2.0-0/user/quickstart/#errors-and-exceptions
+        https://requests.readthedocs.io/en/latest/api/#exceptions
         
         Keyword arguments:
         
@@ -2071,7 +2071,7 @@ class RandomOrgClient(object):
         https://api.random.org/json-rpc/4/error-codes
         
         Can also raise connection errors as described here:
-        http://docs.python-requests.org/en/v2.0-0/user/quickstart/#errors-and-exceptions
+        https://requests.readthedocs.io/en/latest/api/#exceptions
         
         Keyword arguments:
         
@@ -2126,7 +2126,7 @@ class RandomOrgClient(object):
         https://api.random.org/json-rpc/4/error-codes
         
         Can also raise connection errors as described here:
-        http://docs.python-requests.org/en/v2.0-0/user/quickstart/#errors-and-exceptions
+        https://requests.readthedocs.io/en/latest/api/#exceptions
         
         Keyword arguments:
         
@@ -2587,7 +2587,7 @@ class RandomOrgClient(object):
         https://api.random.org/json-rpc/4/error-codes
         
         Can also raise connection errors as described here:
-        http://docs.python-requests.org/en/v2.0-0/user/quickstart/#errors-and-exceptions
+        https://requests.readthedocs.io/en/latest/api/#exceptions
         """
         try:
             # Python 2.7
@@ -2635,7 +2635,7 @@ class RandomOrgClient(object):
         https://api.random.org/json-rpc/4/error-codes
         
         Can also raise connection errors as described here:
-        http://docs.python-requests.org/en/v2.0-0/user/quickstart/#errors-and-exceptions
+        https://requests.readthedocs.io/en/latest/api/#exceptions
         """
         try:
             # Python 2.7

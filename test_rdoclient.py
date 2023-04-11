@@ -161,6 +161,16 @@ class TestRandomOrgClient(unittest.TestCase):
             response = self._client.generate_signed_integers(10, 0, 10, 
                                                              ticket_id=ticket_id)
     
+    def test_ticket_not_yet_used_error(self):
+        """Check RandomOrgTicketNotYetUsedError raised when ticket hasn't been
+        used yet (when revealing)."""
+        
+        ticket = self._client.create_tickets(1, False)
+        ticket_id = ticket[0]['ticketId']
+        
+        with pytest.raises(RandomOrgTicketNotYetUsedError):
+            response = self._client.reveal_tickets(ticket_id)
+    
     def test_pregenerated_randomization(self):
         """Check methods return identical values when using same date or id."""
         
@@ -422,6 +432,56 @@ class TestRandomOrgClient(unittest.TestCase):
         
         for i in response:
             assert i['ticketId'] is not None
+            
+    def test_reveal_tickets_single(self):
+        """Check if a single ticket is revealed correctly."""
+        ticket = self._client.create_tickets(1, False)
+        ticket_id = ticket[0]['ticketId']
+        
+        response = self._client.generate_signed_integers(5, 0, 10,
+                                                         ticket_id=ticket_id)
+        
+        # Before revealing.
+        get_ticket = self._client.get_ticket(ticket_id)
+        assert 'result' not in get_ticket
+        
+        reveal = self._client.reveal_tickets(ticket_id)
+        assert reveal['ticketCount'] == 1
+        
+        # After revealing.
+        get_ticket = self._client.get_ticket(ticket_id)
+        assert get_ticket['result'] is not None
+        assert get_ticket['result']['random']['data'] == response['data']
+        
+    def test_reveal_tickets_multiple(self):
+        n = 3
+        
+        ticket = self._client.create_tickets(1, False)
+        ticket_id = ticket[0]['ticketId']
+        results = {}
+        get_ticket = None
+        
+        for i in range(n):
+            if i > 0 and get_ticket != None:
+                ticket_id = get_ticket['nextTicketId']
+                
+            response = self._client.generate_signed_integers(5, 0, 10,
+                                                         ticket_id=ticket_id)
+            
+            results[ticket_id] = response;
+            
+            # Before revealing.
+            get_ticket = self._client.get_ticket(ticket_id)
+            assert 'result' not in get_ticket
+        
+        reveal = self._client.reveal_tickets(ticket_id)
+        assert reveal['ticketCount'] == n
+        
+        # After revealing.
+        for id, value in results.items():
+            get_ticket = self._client.get_ticket(id)
+            assert get_ticket['result'] is not None
+            assert get_ticket['result']['random']['data'] == value['data']
     
     def test_list_tickets(self):
         """Check list tickets returns a list of tickets of the correct type."""

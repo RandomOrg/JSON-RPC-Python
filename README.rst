@@ -27,7 +27,7 @@ Requires the `six <https://six.readthedocs.io/>`_ lib:
     $ pip install six
 
 
-Note that the required dependencies 'requests' and 'six' are installed automatically, when using pip install for 'rdoclient' version >= 1.2 (Update: November 2020).  
+Note that the required dependencies 'requests' and 'six' are installed automatically, when using pip install for 'rdoclient' version >= 1.2.  
 
 Usage
 -----

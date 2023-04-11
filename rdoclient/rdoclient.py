@@ -84,6 +84,7 @@ _SIGNED_UUID_METHOD              = 'generateSignedUUIDs'
 _SIGNED_BLOB_METHOD              = 'generateSignedBlobs'
 _GET_RESULT_METHOD               = 'getResult'
 _CREATE_TICKETS_METHOD           = 'createTickets'
+_REVEAL_TICKETS_METHOD           = 'revealTickets'
 _LIST_TICKETS_METHOD             = 'listTickets'
 _GET_TICKET_METHOD               = 'getTicket'
 _VERIFY_SIGNATURE_METHOD         = 'verifySignature'
@@ -197,6 +198,15 @@ class RandomOrgTooManySingletonTicketsError(Exception):
     Exception raised by the RandomOrgClient class when the maximum 
     number of singleton tickets associated with the API key specified 
     has been reached. 
+    """
+    
+class RandomOrgTicketNotYetUsedError(Exception):
+    """
+    RandomOrgClient ticket has not yet been used.
+    
+    Exception raised by the RandomOrgClient class when the ticket
+    specified in the reveal_tickets method has not yet been used
+    to generate values. 
     """
 
 class RandomOrgLicenseDataRequiredError(Exception):
@@ -1976,7 +1986,73 @@ class RandomOrgClient(object):
         params = { 'apiKey':self._api_key, 'n':n, 'showResult':show_result }
         request = self._generate_request(_CREATE_TICKETS_METHOD, params)
         response = self._send_request(request)
-        return self._extract_tickets(response)
+        return self._extract_result(response)
+    
+    def reveal_tickets(self, ticket_id):
+        """
+        Change the show_result value of a ticket and its predecessors to
+        "True".
+        
+        This method marks a specific ticket and all its predecessors in its
+        chain as being revealed, meaning that subsequent calls to get_ticket
+        will return the full details of the tickets, including the random
+        values produced when the tickets were used. Using reveal_tickets
+        effectively changes the value of show_result (which was specified
+        when the first ticket in the chain was created using create_tickets)
+        from "False" to "True". The reason that not only the ticket specified
+        (but also its predecessors in its chain) are revealed is to ensure
+        maximum transparency. The method does not affect any successors to
+        the ticket in the chain. Returns a number value that specifies how
+        many tickets were revealed. This will include the ticket specified
+        as well as all its predecessors. If this method is invoked on a ticket
+        that is already revealed (or which was created with show_result set
+        to True), then the value returned will be zero. See:
+        https://api.random.org/json-rpc/4/signed#revealTickets
+        
+        Raises a RandomOrgSendTimeoutError if time spent waiting before
+        request is sent exceeds this instance's blocking_timeout.
+        
+        Raises a RandomOrgKeyNonExistentError if this API key does not 
+        exist.
+        
+        Raises a RandomOrgKeyNotRunningError if this API key is stopped. 
+        
+        Raises a RandomOrgInsufficientRequestsError if this API key's 
+        server requests allowance has been exceeded and the instance is
+        backing off until midnight UTC.
+        
+        Raises a RandomOrgInsufficientBitsError if this API key's 
+        server bits allowance has been exceeded.
+        
+        Raises a RandomOrgKeyInvalidAccessError if this API key is not 
+        valid for this method.
+        
+        Raises a RandomOrgKeyInvalidVersionError if this API key is not 
+        valid for the version of the API invoked.
+        
+        Raises a RandomOrgTicketNonExistentError if the ticket used 
+        does not exist.
+        
+        Raises a RandomOrgTicketNotYetUsedError if the ticket specified
+        has not yet been used.
+        
+        Raises a ValueError on RANDOM.ORG Errors, error descriptions:
+        https://api.random.org/json-rpc/4/error-codes
+        
+        Raises a RuntimeError on JSON-RPC Errors, error descriptions:
+        https://api.random.org/json-rpc/4/error-codes
+        
+        Can also raise connection errors as described here:
+        https://requests.readthedocs.io/en/latest/api/#exceptions
+        
+        Keyword arguments:
+        
+        ticket_id -- A string value that uniquely identifies the ticket.
+        """
+        params = { 'apiKey':self._api_key, 'ticketId':ticket_id }
+        request = self._generate_request(_REVEAL_TICKETS_METHOD, params)
+        response = self._send_request(request)
+        return self._extract_result(response)
     
     def list_tickets(self, ticket_type):
         """
@@ -2029,7 +2105,7 @@ class RandomOrgClient(object):
         params = { 'apiKey':self._api_key, 'ticketType':ticket_type }
         request = self._generate_request(_LIST_TICKETS_METHOD, params)
         response = self._send_request(request)
-        return self._extract_tickets(response)
+        return self._extract_result(response)
     
     def get_ticket(self, ticket_id):
         """
@@ -2082,7 +2158,7 @@ class RandomOrgClient(object):
         params = { 'ticketId':ticket_id }
         request = self._generate_request(_GET_TICKET_METHOD, params)
         response = self._send_request(request)
-        return self._extract_tickets(response)
+        return self._extract_result(response)
     
     
     # Signature verification for signed methods, see:
@@ -2825,7 +2901,7 @@ class RandomOrgClient(object):
             # https://api.random.org/json-rpc/4/error-codes
             elif code == 405:
                 return { 'exception':
-                        RandomOrgKeyInvalidVersionError('Error' + str(code) 
+                        RandomOrgKeyInvalidVersionError('Error ' + str(code) 
                                                         + ': ' + message)}
             
             # RandomOrgTicketNonExistentError, the ticket specified does
@@ -2833,7 +2909,7 @@ class RandomOrgClient(object):
             # https://api.random.org/json-rpc/4/error-codes 
             elif code == 420:
                 return { 'exception':
-                        RandomOrgTicketNonExistentError('Error' + str(code) 
+                        RandomOrgTicketNonExistentError('Error ' + str(code) 
                                                         + ': ' + message)}
             
             # RandomOrgTicketAPIKeyMismatchError, the ticket specified 
@@ -2842,7 +2918,7 @@ class RandomOrgClient(object):
             # https://api.random.org/json-rpc/4/error-codes
             elif code == 421:
                 return { 'exception':
-                        RandomOrgTicketAPIKeyMismatchError('Error' + str(code) 
+                        RandomOrgTicketAPIKeyMismatchError('Error ' + str(code) 
                                                            + ': ' + message)}
             
             # RandomOrgTicketAlreadyUsedError, the ticket specified has 
@@ -2850,7 +2926,7 @@ class RandomOrgClient(object):
             # https://api.random.org/json-rpc/4/error-codes
             elif code == 422:
                 return { 'exception':
-                        RandomOrgTicketAlreadyUsedError('Error' + str(code) 
+                        RandomOrgTicketAlreadyUsedError('Error ' + str(code) 
                                                         + ': ' + message)}
             
             # RandomOrgTooManySingletonTicketsError, the maximum number 
@@ -2859,7 +2935,7 @@ class RandomOrgClient(object):
             # https://api.random.org/json-rpc/4/error-codes
             elif code == 423:
                 return { 'exception':
-                        RandomOrgTooManySingletonTicketsError('Error' 
+                        RandomOrgTooManySingletonTicketsError('Error ' 
                                                               + str(code) 
                                                               + ': '
                                                               + message)}
@@ -2869,7 +2945,7 @@ class RandomOrgClient(object):
             # https://api.random.org/json-rpc/4/error-codes
             elif code == 424:
                 return { 'exception':
-                        RandomOrgLicenseDataRequiredError('Error' 
+                        RandomOrgLicenseDataRequiredError('Error ' 
                                                           + str(code) 
                                                           + ': ' + message)}
             
@@ -2879,7 +2955,17 @@ class RandomOrgClient(object):
             # https://api.random.org/json-rpc/4/error-codes
             elif code == 425:
                 return { 'exception':
-                        RandomOrgLicenseDataNotAllowedError('Error' 
+                        RandomOrgLicenseDataNotAllowedError('Error ' 
+                                                            + str(code) 
+                                                            + ': ' 
+                                                            + message)}
+                
+            # RandomOrgTicketNotYetUsedError, the ticket you specified has
+            # not yet been used, from RANDOM.ORG Errors: 
+            # https://api.random.org/json-rpc/4/error-codes
+            elif code == 426:
+                return { 'exception':
+                        RandomOrgTicketNotYetUsedError('Error ' 
                                                             + str(code) 
                                                             + ': ' 
                                                             + message)}
@@ -2953,8 +3039,9 @@ class RandomOrgClient(object):
         # Gets verification boolean.
         return bool(response['result']['authenticity'])
     
-    def _extract_tickets(self, response):
-        # Gets list of tickets for create_tickets method
+    def _extract_result(self, response):
+        # Gets 'result' property of a return object. Primarily used
+        # for ticket-related methods.
         return response['result']
     
     def _extract_ints(self, response, decimal=True):

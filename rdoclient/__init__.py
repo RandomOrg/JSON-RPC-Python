@@ -48,7 +48,7 @@ rdoclient.py documentation and https://api.random.org/json-rpc/4
 """
 
 __title__ = 'rdoclient'
-__version__ = '1.4.3'
+__version__ = '1.5.0'
 __build__ = 0x010000
 __author__ = 'RANDOM.ORG'
 __license__ = 'MIT'
@@ -59,14 +59,18 @@ from .rdoclient import (RandomOrgClient, RandomOrgCache, RandomOrgSendTimeoutErr
                         RandomOrgInsufficientRequestsError, RandomOrgInsufficientBitsError, 
                         RandomOrgKeyInvalidAccessError, RandomOrgKeyInvalidVersionError, 
                         RandomOrgTicketNonExistentError, RandomOrgTicketAPIKeyMismatchError, 
-                        RandomOrgTicketAlreadyUsedError, RandomOrgTooManySingletonTicketsError)
+                        RandomOrgTicketAlreadyUsedError, RandomOrgTooManySingletonTicketsError,
+                        RandomOrgTicketNotYetUsedError, RandomOrgLicenseDataRequiredError,
+                        RandomOrgLicenseDataNotAllowedError)
 
 __all__ = [ 'RandomOrgClient', 'RandomOrgCache', 'RandomOrgSendTimeoutError', 
            'RandomOrgKeyNonExistentError', 'RandomOrgKeyNotRunningError', 
            'RandomOrgInsufficientRequestsError', 'RandomOrgInsufficientBitsError', 
            'RandomOrgKeyInvalidAccessError', 'RandomOrgKeyInvalidVersionError', 
            'RandomOrgTicketNonExistentError', 'RandomOrgTicketAPIKeyMismatchError', 
-           'RandomOrgTicketAlreadyUsedError', 'RandomOrgTooManySingletonTicketsError' ]
+           'RandomOrgTicketAlreadyUsedError', 'RandomOrgTooManySingletonTicketsError',
+           'RandomOrgTicketNotYetUsedError', 'RandomOrgLicenseDataRequiredError',
+           'RandomOrgLicenseDataNotAllowedError' ]
 
 import logging
 
